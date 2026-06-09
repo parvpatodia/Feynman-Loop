@@ -131,11 +131,22 @@ All four planning decisions are now settled:
   and the model references passages by INDEX so it can never hallucinate a citation's
   doc_id/doc_label — the code maps index → real identifiers. 10 tests green total.
 
-**Next concrete build: the orchestration loop (pieces 2, 3, 6, 7).** Wire the pieces into the
-explain-it-back demo: seed a concept + minimal goal/link (2), take the user's explanation (3,
-CLI first), retrieve → judge → render the GapReport with grounding (6), persist to user-state (7).
-This is mostly glue, no big open design call. Minor decision pending: persistence for the demo
-(in-memory vs a small JSON store). Live runs need `ANTHROPIC_API_KEY` exported.
+- Pieces 2, 3, 6, 7 (orchestration loop): DONE, tested. `run_review` in `feynman_loop/loop.py`
+  wires retrieve (by `source_ref.retrieval_query`) → judge → write user-state. `next_due_at` is
+  computed at the END of the review by `scheduling.compute_next_due` (hybrid: u=0→1 day,
+  u=1→30 days). Persistence = JSON (`storage.JsonUserStateStore`, Decision 14). Render =
+  `render.render_gap_report`. CLI entry = `feynman_loop/cli.py` (`python -m feynman_loop.cli`).
+  16 tests green total.
+
+**ALL 7 demo pieces built.** The explain-it-back loop is end-to-end runnable from the CLI.
+
+**Remaining to actually demo:**
+- Run it LIVE: `export ANTHROPIC_API_KEY=...`, then
+  `python -m feynman_loop.cli <source.txt> "<Concept>" "<retrieval query>"`. First run downloads
+  the local embedding model (all-MiniLM-L6-v2).
+- Web UI (deferred per Decision 14; CLI proves the loop first).
+- Open implementation calls still pending Parv: confirm the hybrid interval shape (linear vs
+  SM-2 ease_factor), and whether transfer measurement (Decision 12) enters v1 or stays deferred.
 
 Also still open (deferred implementation calls surfaced during the data model pass):
 - **Storage layer** — Pydantic models exist, but no DB chosen yet (SQLite vs Postgres).
