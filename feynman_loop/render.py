@@ -9,6 +9,12 @@ from __future__ import annotations
 from feynman_loop.models import GapReport
 
 
+def _clean(text: str) -> str:
+    # WHY: source chunks keep their original line breaks, so a quote can render split
+    # mid-sentence. Collapse runs of whitespace to single spaces for clean display.
+    return " ".join(text.split())
+
+
 def render_gap_report(report: GapReport) -> str:
     lines: list[str] = [f"Understanding: {report.understanding_level:.0%}"]
 
@@ -19,9 +25,9 @@ def render_gap_report(report: GapReport) -> str:
     if report.gaps:
         lines.append("\nGaps (each grounded in your own source):")
         for g in report.gaps:
-            lines.append(f"  - {g.description}")
+            lines.append(f"  - {_clean(g.description)}")
             lines.append(f"      source: {g.citation.doc_label}")
-            lines.append(f'      "{g.citation.quote}"')
+            lines.append(f'      "{_clean(g.citation.quote)}"')
     else:
         lines.append("\nNo gaps found against your source.")
 
