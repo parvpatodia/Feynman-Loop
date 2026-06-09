@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# Secrets / local config
+.env
+*.env
+
+# Local data / vector store / persistence
+*.sqlite
+*.sqlite3
+chroma/
+data/
+
+# OS
+.DS_Store

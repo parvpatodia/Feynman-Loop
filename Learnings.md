@@ -23,5 +23,13 @@
 
 ## Build learnings (append technical findings here as you develop)
 
-- _(none yet)_
+- **Never ground truth in the user's own past explanation.** Tempting to check a new
+  explanation against a previous "correct" one, but that calcifies the user's own errors:
+  a subtly-wrong explanation that slipped through once becomes the standard forever. The
+  user's prior explanations are `user-state` (do they still know it? did they regress?),
+  never `concept` source-of-truth (what is correct?). Keep the two buckets clean.
+- **Store a locator, not the truth.** A `concept` points at where its truth lives (doc id +
+  retrieval query), it does not copy the truth text in. Copying re-creates the staleness
+  problem that killed fine-tuning, and freezes one passage so the judge can't match what
+  the user actually said. Retrieve live at judge time.
 EOF
