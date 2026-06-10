@@ -75,6 +75,9 @@
   button:active { transform: translateY(1px); }
   button:disabled { opacity: 0.45; cursor: default; }
   .hint { color: var(--faint); font-size: 13px; }
+  button.mic { background: transparent; color: var(--accent); border: 1px solid var(--border); padding: 9px 14px; }
+  button.mic:hover { border-color: var(--accent); opacity: 1; }
+  button.mic.recording { color: var(--danger); border-color: var(--danger); }
 
   .hidden { display: none; }
   .score { font-size: 40px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
@@ -127,7 +130,8 @@
       <textarea id="explanation" placeholder="In your own words, no peeking..."></textarea>
       <div class="row">
         <button id="explainBtn" onclick="submitExplanation()">Submit explanation</button>
-        <span class="hint">Edit and submit again any time to re-attempt.</span>
+        <button type="button" class="mic" id="explainMic" onclick="toggleMic('explanation', this)">&#127908; Speak</button>
+        <span class="hint">Type or speak. Edit and submit again any time.</span>
         <span class="loading hidden" id="explainLoading">Judging against your source...</span>
       </div>
       <div class="err hidden" id="explainErr"></div>
@@ -140,7 +144,8 @@
       <textarea id="answer" placeholder="Apply the concept to the case above..."></textarea>
       <div class="row">
         <button id="transferBtn" onclick="submitTransfer()">Submit answer</button>
-        <span class="hint">Edit and submit again to re-attempt.</span>
+        <button type="button" class="mic" id="transferMic" onclick="toggleMic('answer', this)">&#127908; Speak</button>
+        <span class="hint">Type or speak.</span>
         <span class="loading hidden" id="transferLoading">Scoring against the rubric...</span>
       </div>
       <div class="err hidden" id="transferErr"></div>
@@ -154,6 +159,7 @@
       <textarea id="remediationAnswer" placeholder="Try the narrower case..."></textarea>
       <div class="row">
         <button id="remediationBtn" onclick="submitRemediation()">Submit retry</button>
+        <button type="button" class="mic" id="remediationMic" onclick="toggleMic('remediationAnswer', this)">&#127908; Speak</button>
         <span class="loading hidden" id="remediationLoading">Scoring...</span>
       </div>
       <div class="err hidden" id="remediationErr"></div>
@@ -325,6 +331,40 @@ function renderTransfer(r) {
     document.getElementById("remediationAnswer").value = "";
     show("remediation");
   }
+}
+
+// --- voice input: live transcription via the browser SpeechRecognition API (Chrome/Edge) ---
+let _recognition = null;
+function toggleMic(textareaId, btn) {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return;
+  if (_recognition) { _recognition.stop(); return; }   // already recording -> toggle off
+  const ta = document.getElementById(textareaId);
+  const base = ta.value.trim() ? ta.value.trim() + " " : "";
+  let finalText = "";
+  _recognition = new SR();
+  _recognition.continuous = true;
+  _recognition.interimResults = true;
+  _recognition.lang = "en-US";
+  btn.classList.add("recording");
+  btn.innerHTML = "&#9632; Stop";
+  _recognition.onresult = (e) => {
+    let interim = "";
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript;
+      if (e.results[i].isFinal) finalText += t + " "; else interim += t;
+    }
+    ta.value = base + finalText + interim;
+  };
+  const reset = () => { btn.classList.remove("recording"); btn.innerHTML = "&#127908; Speak"; _recognition = null; };
+  _recognition.onend = reset;
+  _recognition.onerror = reset;
+  _recognition.start();
+}
+
+// hide the mic buttons where speech recognition isn't supported (e.g. Firefox)
+if (!("webkitSpeechRecognition" in window) && !("SpeechRecognition" in window)) {
+  document.querySelectorAll(".mic").forEach((b) => b.classList.add("hidden"));
 }
 </script>
 </body>
