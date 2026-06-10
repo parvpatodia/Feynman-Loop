@@ -177,8 +177,14 @@ measure stays TRANSFER. `Judge` interface = `build_rubric` + `evaluate(concept, 
 (no passages at review time). `RubricPoint` moved to `gap_report.py` (shared). 37 tests green.
 NOTE: live "does it feel accurate" behavior needs a real-key run; offline tests verify the logic.
 
-**Still open / next:** #5 distribution (no-upload fallback + connectors/corpus vision) — Parv
-thinking about it. Then latency (#3), voice (#2), UI polish (#4)."
+**Post-demo progress:** #1 rubric scoring DONE. #2 voice input DONE (browser SpeechRecognition,
+Chrome/Edge). #3 latency: deferred transfer-probe generation out of /api/review into
+`/api/transfer/generate` (gap returns after one model call; the challenge loads while the user
+reads) + run_review no longer retrieves. Remaining latency levers, opt-in with tradeoffs: prompt
+caching (small inputs → modest), model tiering to Sonnet (accuracy tradeoff, Parv's call),
+streaming the gap.
+**Still open:** #5 distribution (no-upload fallback + connectors/corpus vision) — Parv thinking
+about it. #4 UI polish (YC-grade pass)."
 
 **Remaining to actually demo:**
 - Run it LIVE: `export ANTHROPIC_API_KEY=...`, then

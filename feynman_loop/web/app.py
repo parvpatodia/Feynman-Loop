@@ -74,6 +74,7 @@ class _Session:
         self.store = store
         self.probe: TransferProbe | None = None  # set after a gated review
         self.remediation_done = False  # WHY: bound remediation to a single retry, not a loop
+        self.transfer_available = False  # WHY: review sets this; the probe is generated on demand
 
 
 _SESSIONS: dict[str, _Session] = {}
@@ -106,7 +107,15 @@ class ReviewResponse(BaseModel):
     gaps: list[GapOut]
     next_due: str
     review_count: int
-    transfer_question: str | None  # present only when the gate is passed
+    transfer_available: bool  # whether a transfer challenge is unlocked (generated on demand)
+
+
+class GenerateTransferRequest(BaseModel):
+    session_id: str
+
+
+class TransferQuestionResponse(BaseModel):
+    question: str
 
 
 class TransferRequest(BaseModel):
@@ -189,13 +198,11 @@ def review(req: ReviewRequest) -> ReviewResponse:
         store=s.store,
     )
 
-    transfer_question = None
-    if report.understanding_level >= TRANSFER_GATE:
-        s.probe = generate_transfer_probe(
-            concept=s.concept, retriever=s.retriever, engine=_make_transfer()
-        )
-        s.remediation_done = False  # WHY: a fresh review re-opens the one-shot remediation
-        transfer_question = _clean(s.probe.question)
+    # WHY (latency): do NOT generate the transfer probe here. Returning the gap after a single
+    # model call lets the user read it immediately; the transfer question is generated in a
+    # separate request (/api/transfer/generate) while they read, instead of blocking this one.
+    s.transfer_available = report.understanding_level >= TRANSFER_GATE
+    s.probe = None
 
     return ReviewResponse(
         understanding_level=report.understanding_level,
@@ -206,8 +213,20 @@ def review(req: ReviewRequest) -> ReviewResponse:
         ],
         next_due=state.next_due_at.strftime("%Y-%m-%d") if state.next_due_at else "",
         review_count=state.review_count,
-        transfer_question=transfer_question,
+        transfer_available=s.transfer_available,
     )
+
+
+@app.post("/api/transfer/generate", response_model=TransferQuestionResponse)
+def generate_transfer(req: GenerateTransferRequest) -> TransferQuestionResponse:
+    s = _session(req.session_id)
+    if not s.transfer_available:
+        raise HTTPException(status_code=409, detail="no transfer available for this review")
+    s.probe = generate_transfer_probe(
+        concept=s.concept, retriever=s.retriever, engine=_make_transfer()
+    )
+    s.remediation_done = False  # a freshly generated probe re-opens the one-shot remediation
+    return TransferQuestionResponse(question=_clean(s.probe.question))
 
 
 @app.post("/api/transfer", response_model=TransferResponse)

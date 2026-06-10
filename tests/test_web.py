@@ -98,10 +98,14 @@ def test_full_flow_session_review_transfer(client):
     assert body["understanding_level"] == 0.8
     assert "weight update" in body["gaps"][0]["description"]  # gap is a probe, not the answer quote
     assert "quote" not in body["gaps"][0]  # answer text is not handed to the user
-    assert body["transfer_question"]  # offered because >= gate
+    assert body["transfer_available"] is True  # unlocked because >= gate
     assert body["review_count"] == 1
 
-    # 3. answer the transfer challenge -> scored against the grounded rubric
+    # 3. transfer question is generated on demand (deferred out of /api/review for latency)
+    q = client.post("/api/transfer/generate", json={"session_id": sid}).json()
+    assert q["question"]
+
+    # 4. answer the transfer challenge -> scored against the grounded rubric
     r = client.post("/api/transfer", json={"session_id": sid, "answer": "uses the chain rule layer by layer"})
     assert r.status_code == 200
     t = r.json()
@@ -127,6 +131,7 @@ def test_low_transfer_offers_one_bounded_remediation(monkeypatch, tmp_path):
 
     sid = c.post("/api/session", json={"source_text": "chain rule. optimizer.", "concept_label": "Backprop"}).json()["session_id"]
     c.post("/api/review", json={"session_id": sid, "explanation": "e"})  # judge 0.8 -> transfer offered
+    c.post("/api/transfer/generate", json={"session_id": sid})  # generate the probe (deferred)
 
     r = c.post("/api/transfer", json={"session_id": sid, "answer": "weak"}).json()
     assert r["transfer_score"] == 0.1

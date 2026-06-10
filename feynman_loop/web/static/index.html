@@ -275,10 +275,24 @@ function renderReview(r) {
   document.getElementById("due").textContent = `Next review due ${r.next_due} (review #${r.review_count})`;
   show("result");
 
-  if (r.transfer_question) {
-    document.getElementById("transferQuestion").textContent = r.transfer_question;
+  if (r.transfer_available) {
+    document.getElementById("transferQuestion").textContent = "Generating a transfer challenge...";
     document.getElementById("answer").value = "";
     show("transfer");
+    loadTransferQuestion();  // deferred: the gap is already visible while this loads
+  }
+}
+
+async function loadTransferQuestion() {
+  const btn = document.getElementById("transferBtn");
+  btn.disabled = true;  // can't answer until the question is here
+  try {
+    const r = await post("/api/transfer/generate", { session_id: sessionId });
+    document.getElementById("transferQuestion").textContent = r.question;
+  } catch (e) {
+    document.getElementById("transferQuestion").textContent = "(couldn't generate a challenge: " + e.message + ")";
+  } finally {
+    btn.disabled = false;
   }
 }
 
