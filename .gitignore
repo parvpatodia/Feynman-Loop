@@ -16,6 +16,7 @@ env/
 *.sqlite3
 chroma/
 data/
+feynman_state.json
 
 # OS
 .DS_Store
