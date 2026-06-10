@@ -2,10 +2,11 @@
 
 Usage:
     export ANTHROPIC_API_KEY=...
-    python -m feynman_loop.cli path/to/source.txt "Backpropagation" "backprop: chain rule"
+    python -m feynman_loop.cli path/to/source.txt "Backpropagation"
 
-It ingests the source, seeds one concept whose locator points at it, asks you to explain the
-concept in your own words, then retrieves + judges + renders the grounded gap.
+It ingests the source, derives the retrieval query from the concept name, seeds one concept whose
+locator points at the source, asks you to explain the concept in your own words, then retrieves +
+judges + renders the grounded gap.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from feynman_loop.render import (
     render_transfer_result,
 )
 from feynman_loop.retrieval.chroma_store import ChromaRetriever, sentence_transformer_embedder
+from feynman_loop.retrieval.query_expansion import ClaudeQueryExpander
 from feynman_loop.storage import JsonUserStateStore
 from feynman_loop.transfer.claude_transfer import ClaudeTransfer
 
@@ -51,11 +53,11 @@ def _read_block(stream=None) -> str:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) < 4:
+    if len(argv) < 3:
         print(__doc__)
         return 2
 
-    source_path, concept_label, retrieval_query = argv[1], argv[2], argv[3]
+    source_path, concept_label = argv[1], argv[2]
     text = open(source_path, encoding="utf-8").read()
     doc_id = uuid4()
     doc_label = source_path
@@ -63,6 +65,10 @@ def main(argv: list[str]) -> int:
     # ingest the one source document (chunk -> embed -> index)
     retriever = ChromaRetriever(embed=sentence_transformer_embedder())
     retriever.ingest(doc_id=doc_id, doc_label=doc_label, text=text)
+
+    # WHY: derive the retrieval query from the concept name (a learner shouldn't engineer a
+    # search string). The model expands it into a richer semantic query for better retrieval.
+    retrieval_query = ClaudeQueryExpander().expand(concept_label=concept_label)
 
     # seed the concept; its locator points at the doc we just ingested
     concept = Concept(

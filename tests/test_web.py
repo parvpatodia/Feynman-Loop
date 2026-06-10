@@ -1,8 +1,6 @@
 """Web API flow test. Overrides the _make_* factories with fakes so the full
 session -> review -> transfer path runs offline, no tokens, no model download."""
 
-from uuid import uuid4
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -52,6 +50,11 @@ class _FakeTransfer:
                               user_answer=user_answer, transfer_score=1.0, met=["uses chain rule"], missed=[])
 
 
+class _FakeExpander:
+    def expand(self, *, concept_label):
+        return f"{concept_label} expanded query"
+
+
 @pytest.fixture
 def client(monkeypatch, tmp_path):
     from feynman_loop.storage import JsonUserStateStore
@@ -59,6 +62,7 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setattr(webapp, "_make_retriever", lambda: _FakeRetriever())
     monkeypatch.setattr(webapp, "_make_judge", lambda: _FakeJudge())
     monkeypatch.setattr(webapp, "_make_transfer", lambda: _FakeTransfer())
+    monkeypatch.setattr(webapp, "_make_expander", lambda: _FakeExpander())
     monkeypatch.setattr(webapp, "_make_store", lambda: JsonUserStateStore(tmp_path / "s.json"))
     webapp._SESSIONS.clear()
     return TestClient(webapp.app)
@@ -69,7 +73,6 @@ def test_full_flow_session_review_transfer(client):
     r = client.post("/api/session", json={
         "source_text": "Backprop applies the chain rule recursively. A separate optimizer updates weights.",
         "concept_label": "Backpropagation",
-        "retrieval_query": "backprop chain rule",
     })
     assert r.status_code == 200
     sid = r.json()["session_id"]

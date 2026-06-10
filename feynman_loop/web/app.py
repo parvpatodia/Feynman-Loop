@@ -21,6 +21,7 @@ from feynman_loop.judge.claude_judge import ClaudeJudge
 from feynman_loop.loop import TRANSFER_GATE, generate_transfer_probe, run_review, score_transfer
 from feynman_loop.models import Concept, SourceRef, SourceTier, TransferProbe
 from feynman_loop.retrieval.chroma_store import ChromaRetriever, sentence_transformer_embedder
+from feynman_loop.retrieval.query_expansion import ClaudeQueryExpander
 from feynman_loop.storage import JsonUserStateStore
 from feynman_loop.transfer.claude_transfer import ClaudeTransfer
 
@@ -51,6 +52,10 @@ def _make_store():
     return JsonUserStateStore("feynman_state.json")
 
 
+def _make_expander():
+    return ClaudeQueryExpander()
+
+
 # --- in-memory per-session state ---
 class _Session:
     def __init__(self, retriever, concept, user_id, store):
@@ -68,7 +73,6 @@ _SESSIONS: dict[str, _Session] = {}
 class StartRequest(BaseModel):
     source_text: str
     concept_label: str
-    retrieval_query: str
 
 
 class StartResponse(BaseModel):
@@ -129,13 +133,15 @@ def start(req: StartRequest) -> StartResponse:
     doc_id = uuid.uuid4()
     doc_label = f"{req.concept_label} source"
     retriever.ingest(doc_id=doc_id, doc_label=doc_label, text=req.source_text)
+    # WHY: derive the retrieval query from the concept; the user doesn't write search strings.
+    retrieval_query = _make_expander().expand(concept_label=req.concept_label)
     concept = Concept(
         label=req.concept_label,
         source_ref=SourceRef(
             tier=SourceTier.UPLOADED,
             doc_id=doc_id,
             doc_label=doc_label,
-            retrieval_query=req.retrieval_query,
+            retrieval_query=retrieval_query,
         ),
     )
     sid = uuid.uuid4().hex

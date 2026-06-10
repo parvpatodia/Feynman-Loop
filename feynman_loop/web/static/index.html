@@ -71,10 +71,8 @@
     <h2>1 &middot; Your material</h2>
     <label for="source">Source text (paste your notes or a passage)</label>
     <textarea id="source" placeholder="Paste the trusted source for this concept..."></textarea>
-    <label for="concept">Concept</label>
+    <label for="concept">Concept you want to test yourself on</label>
     <input id="concept" placeholder="Backpropagation" />
-    <label for="query">Retrieval query (key terms to find the right passage)</label>
-    <input id="query" placeholder="backprop gradients chain rule optimizer" />
     <button id="startBtn" onclick="startSession()">Start</button>
     <div class="loading hidden" id="setupLoading">Indexing your source...</div>
     <div class="err hidden" id="setupErr"></div>
@@ -150,12 +148,11 @@ async function startSession() {
   clearErr("setupErr");
   const source = document.getElementById("source").value.trim();
   const concept = document.getElementById("concept").value.trim();
-  const query = document.getElementById("query").value.trim();
-  if (!source || !concept || !query) { setErr("setupErr", "Fill in all three fields."); return; }
+  if (!source || !concept) { setErr("setupErr", "Add your source and the concept."); return; }
   document.getElementById("startBtn").disabled = true;
   show("setupLoading");
   try {
-    const data = await post("/api/session", { source_text: source, concept_label: concept, retrieval_query: query });
+    const data = await post("/api/session", { source_text: source, concept_label: concept });
     sessionId = data.session_id;
     document.getElementById("explainLabel").textContent = `Explain "${data.concept_label}" in your own words`;
     show("explain");
