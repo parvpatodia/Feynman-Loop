@@ -190,9 +190,16 @@ streaming the gap.
   are built from the model's own knowledge, flagged "general knowledge (unverified)" in the UI
   (`grounded: false`). Unified code path: no source → retriever=None → empty passages → knowledge
   mode in judge + transfer. `MODEL_FALLBACK_LABEL` in gap_report. 39 tests green.
-- NEXT: the MCP server — expose Feynman-Loop as MCP tools so it lives inside the AI workflow
-  (source = context you're already in; tier-3 covers no-context). Tool surface TBD with Parv.
-- Connectors + curated corpus: roadmap/pitch only, not built."
+- MCP server DONE (`feynman_loop/mcp_server.py`, FastMCP, stdio). 5 tools: start_check
+  (source_text = context you're in, or empty → tier-3), judge_explanation (gaps as probes),
+  make_transfer, score_transfer (one bounded remediation), progress (memory/what's-due view).
+  Reuses the whole pipeline via `loop_ops`; user-state persists in JSON so progress works over
+  time. Host-answer mitigation: every tool result instructs the host to relay, not answer. Run:
+  `python -m feynman_loop.mcp_server`. 43 tests green (offline; live host calls need a real run).
+- Connectors + curated corpus: roadmap/pitch only, not built.
+
+**Status: all post-demo items (#1-#5) shipped.** Web app (polished, voice, PDF, tier-3) + MCP
+server. Remaining is live verification with a real key and prepping the submission narrative."
 
 **Remaining to actually demo:**
 - Run it LIVE: `export ANTHROPIC_API_KEY=...`, then
