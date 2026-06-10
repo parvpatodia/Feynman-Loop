@@ -60,7 +60,7 @@ class ChromaRetriever(Retriever):
         distances = res.get("distances", [[None] * len(documents)])[0]
 
         passages: list[RetrievedPassage] = []
-        for doc, meta, dist in zip(documents, metadatas, distances):
+        for doc, meta, dist in zip(documents, metadatas, distances, strict=False):
             passages.append(
                 RetrievedPassage(
                     doc_id=UUID(meta["doc_id"]),

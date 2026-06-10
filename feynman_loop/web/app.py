@@ -192,13 +192,13 @@ def start(req: StartRequest) -> StartResponse:
 
 @app.post("/api/session/upload", response_model=StartResponse)
 async def start_upload(
-    concept_label: str = Form(...), file: UploadFile = File(...)
+    concept_label: str = Form(...), file: UploadFile = File(...)  # noqa: B008 (FastAPI idiom)
 ) -> StartResponse:
     data = await file.read()
     try:
         text = extract_text(filename=file.filename or "upload", data=data)
     except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from e
     return _start_session(source_text=text, concept_label=concept_label)
 
 
