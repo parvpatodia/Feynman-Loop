@@ -70,15 +70,29 @@ class _FakeExpander:
         return f"{concept_label} expanded query"
 
 
-@pytest.fixture
-def client(monkeypatch, tmp_path):
-    from feynman_loop.storage import JsonUserStateStore
+class _FakeTagger:
+    def tag(self, missed):
+        return ["mechanism" for _ in missed]
+
+
+def _patch_factories(monkeypatch, tmp_path):
+    from feynman_loop.learner import JsonLearnerLog
+    from feynman_loop.storage import JsonConceptStore, JsonIdentity, JsonUserStateStore
 
     monkeypatch.setattr(webapp, "_make_retriever", lambda: _FakeRetriever())
     monkeypatch.setattr(webapp, "_make_judge", lambda: _FakeJudge())
     monkeypatch.setattr(webapp, "_make_transfer", lambda: _FakeTransfer())
     monkeypatch.setattr(webapp, "_make_expander", lambda: _FakeExpander())
     monkeypatch.setattr(webapp, "_make_store", lambda: JsonUserStateStore(tmp_path / "s.json"))
+    monkeypatch.setattr(webapp, "_make_concept_store", lambda: JsonConceptStore(tmp_path / "c.json"))
+    monkeypatch.setattr(webapp, "_make_learner_log", lambda: JsonLearnerLog(tmp_path / "l.json"))
+    monkeypatch.setattr(webapp, "_make_tagger", lambda: _FakeTagger())
+    monkeypatch.setattr(webapp, "_make_identity", lambda: JsonIdentity(tmp_path / "u.json"))
+
+
+@pytest.fixture
+def client(monkeypatch, tmp_path):
+    _patch_factories(monkeypatch, tmp_path)
     webapp._SESSIONS.clear()
     return TestClient(webapp.app)
 
@@ -128,13 +142,8 @@ def test_no_source_session_is_tier3(client):
 
 
 def test_low_transfer_offers_one_bounded_remediation(monkeypatch, tmp_path):
-    from feynman_loop.storage import JsonUserStateStore
-
-    monkeypatch.setattr(webapp, "_make_retriever", lambda: _FakeRetriever())
-    monkeypatch.setattr(webapp, "_make_judge", lambda: _FakeJudge())
+    _patch_factories(monkeypatch, tmp_path)
     monkeypatch.setattr(webapp, "_make_transfer", lambda: _FakeLowTransfer())
-    monkeypatch.setattr(webapp, "_make_expander", lambda: _FakeExpander())
-    monkeypatch.setattr(webapp, "_make_store", lambda: JsonUserStateStore(tmp_path / "s.json"))
     webapp._SESSIONS.clear()
     c = TestClient(webapp.app)
 

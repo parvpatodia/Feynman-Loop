@@ -17,6 +17,9 @@ env/
 chroma/
 data/
 feynman_state.json
+feynman_concepts.json
+feynman_learner.json
+feynman_user.json
 
 # OS
 .DS_Store

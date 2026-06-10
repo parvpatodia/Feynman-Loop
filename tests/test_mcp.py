@@ -57,13 +57,25 @@ class _FakeExpander:
         return f"{concept_label} expanded"
 
 
+class _FakeTagger:
+    def tag(self, missed):
+        return ["mechanism" for _ in missed]
+
+
 @pytest.fixture(autouse=True)
 def fakes(monkeypatch, tmp_path):
+    from feynman_loop.learner import JsonLearnerLog
+    from feynman_loop.storage import JsonConceptStore, JsonIdentity
+
     monkeypatch.setattr(srv, "_make_retriever", lambda: _FakeRetriever())
     monkeypatch.setattr(srv, "_make_judge", lambda: _FakeJudge())
     monkeypatch.setattr(srv, "_make_transfer", lambda: _FakeTransfer())
     monkeypatch.setattr(srv, "_make_expander", lambda: _FakeExpander())
     monkeypatch.setattr(srv, "_make_store", lambda: JsonUserStateStore(tmp_path / "s.json"))
+    monkeypatch.setattr(srv, "_make_concept_store", lambda: JsonConceptStore(tmp_path / "c.json"))
+    monkeypatch.setattr(srv, "_make_learner_log", lambda: JsonLearnerLog(tmp_path / "l.json"))
+    monkeypatch.setattr(srv, "_make_tagger", lambda: _FakeTagger())
+    monkeypatch.setattr(srv, "_make_identity", lambda: JsonIdentity(tmp_path / "u.json"))
     srv._CHECKS.clear()
 
 
@@ -108,3 +120,45 @@ def test_make_transfer_requires_unlock():
     # a low-understanding review shouldn't unlock transfer; force it by not judging first
     started = srv.start_check("Osmosis")
     assert "error" in srv.make_transfer(started["check_id"])  # transfer_available is False until judged
+
+
+def test_memory_survives_a_server_restart():
+    # THE moat property: the ledger must outlive the process. This is the test that was missing
+    # when _USER_ID was a per-process uuid and progress() read only in-memory state.
+    started = srv.start_check("Backpropagation")
+    srv.judge_explanation(started["check_id"], "it computes gradients")
+
+    srv._CHECKS.clear()  # simulate Claude Desktop restarting the server
+
+    prog = srv.progress()
+    assert [c["concept"] for c in prog["concepts"]] == ["Backpropagation"]  # read from disk
+    assert prog["learner"]["reviews"] == 1                                   # ledger intact
+
+
+def test_returning_concept_reuses_id_and_history():
+    a = srv.start_check("Backpropagation")
+    srv.judge_explanation(a["check_id"], "first attempt")
+    srv._CHECKS.clear()  # restart
+
+    b = srv.start_check("backpropagation ")  # same concept, sloppier label, no source
+    assert b["returning_concept"] is True
+    cid_a = srv._CHECKS and list(srv._CHECKS.values())[0].concept.id
+    srv.judge_explanation(b["check_id"], "second attempt")
+
+    prog = srv.progress()
+    assert len(prog["concepts"]) == 1          # ONE concept, not a fork
+    assert prog["learner"]["reviews"] == 2     # both attempts on its history
+    assert cid_a is not None
+
+
+def test_progress_includes_learner_profile_and_due_list():
+    started = srv.start_check("Backpropagation")
+    srv.judge_explanation(started["check_id"], "explained")
+    q = srv.make_transfer(started["check_id"])
+    assert q["question"]
+    srv.score_transfer(started["check_id"], "applied")
+
+    prog = srv.progress()
+    assert prog["learner"]["reviews"] == 2     # one explain + one transfer event
+    assert "insight" in prog["learner"]
+    assert "due_now" in prog

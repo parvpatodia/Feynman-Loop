@@ -28,6 +28,12 @@
   a subtly-wrong explanation that slipped through once becomes the standard forever. The
   user's prior explanations are `user-state` (do they still know it? did they regress?),
   never `concept` source-of-truth (what is correct?). Keep the two buckets clean.
+- **Test the moat AS a moat, before building features on it.** We shipped UI polish, voice, and
+  PDF parsing on top of a memory layer that did not survive a server restart (per-process user
+  uuid + in-memory concept registry), and nobody noticed until we asked "why would anyone use
+  this over Claude chat". The moat property (cross-session persistence) now has an explicit test
+  (`test_memory_survives_a_server_restart`). Rule: when the product's defensibility is a property
+  (persistence, grounding, privacy), write the test for the property itself, not just the features.
 - **Store a locator, not the truth.** A `concept` points at where its truth lives (doc id +
   retrieval query), it does not copy the truth text in. Copying re-creates the staleness
   problem that killed fine-tuning, and freezes one passage so the judge can't match what

@@ -199,7 +199,30 @@ streaming the gap.
 - Connectors + curated corpus: roadmap/pitch only, not built.
 
 **Status: all post-demo items (#1-#5) shipped.** Web app (polished, voice, PDF, tier-3) + MCP
-server. Remaining is live verification with a real key and prepping the submission narrative."
+server. Live MCP test on 2026-06-10 ran the full loop end-to-end (NBA: 50%→67%→transfer 29%→
+remediation) with the host correctly relaying probes.
+
+**Decision 16 — the product IS the understanding ledger (2026-06-10).** Brutal-honesty review
+found the memory layer did not persist (per-process user id; concepts in RAM only), meaning the
+moat was fake and "why not just prompt Claude?" had no answer. Fixed and extended:
+- `JsonIdentity` (stable local user id), `JsonConceptStore` (concepts + rubrics persisted;
+  re-explaining a concept attaches to its existing history by normalized-label lookup, instant
+  start, no rubric rebuild), `progress` reads from DISK and survives restarts (explicit test).
+- **Learner ledger** (`feynman_loop/learner.py`): append-only `ReviewEvent` log (every explain/
+  transfer outcome + missed criteria), failure-mode tagging via Haiku (6-tag taxonomy: mechanism/
+  purpose/structure/application/distinction/context), and `derive_profile` (computed in code):
+  explain-vs-apply gap, recurring weak modes, insight string. Exposed in `progress.learner`.
+  Web + MCP share ONE identity and ledger. 52 tests green.
+- Positioning vs "Claude already learns your persona": Claude's memory is a personality model
+  (style/preferences); this is a COMPETENCE model (scored evidence of what you can explain, with
+  due dates). That distinction is the defensible thing.
+
+**Open direction (Parv to ratify): the wedge + proactivity.** Proposed wedge: engineers/students
+who ship AI-written work they can't explain, with the bite moments (interview, review, exam) as
+the trigger. Form: capture+check via MCP in the work tool; PROACTIVITY via Claude Code hooks
+(e.g. session-start "N concepts due", post-session "you shipped X lines you didn't write —
+explain-back?") instead of a widget (rejected: nobody opens another app) or screen-watching
+(ruled out long ago). MCP alone is pull-only; hooks are the honest path to push."
 
 **Remaining to actually demo:**
 - Run it LIVE: `export ANTHROPIC_API_KEY=...`, then

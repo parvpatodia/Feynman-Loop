@@ -34,13 +34,15 @@ from feynman_loop.models import (
     SourceTier,
     TransferProbe,
 )
+from feynman_loop.learner import ClaudeMissTagger, JsonLearnerLog, ReviewEvent
 from feynman_loop.retrieval.chroma_store import ChromaRetriever, sentence_transformer_embedder
 from feynman_loop.retrieval.query_expansion import ClaudeQueryExpander
 from feynman_loop.sources import extract_text
-from feynman_loop.storage import JsonUserStateStore
+from feynman_loop.storage import JsonConceptStore, JsonIdentity, JsonUserStateStore
 from feynman_loop.transfer.claude_transfer import ClaudeTransfer
 
 _STATIC = Path(__file__).parent / "static"
+_ROOT = Path(__file__).resolve().parent.parent.parent  # repo root; ledger files anchor here
 
 
 def _clean(text: str) -> str:
@@ -64,11 +66,40 @@ def _make_transfer():
 
 
 def _make_store():
-    return JsonUserStateStore("feynman_state.json")
+    return JsonUserStateStore(_ROOT / "feynman_state.json")
 
 
 def _make_expander():
     return ClaudeQueryExpander()
+
+
+def _make_concept_store():
+    return JsonConceptStore(_ROOT / "feynman_concepts.json")
+
+
+def _make_learner_log():
+    return JsonLearnerLog(_ROOT / "feynman_learner.json")
+
+
+def _make_tagger():
+    return ClaudeMissTagger()
+
+
+def _make_identity():
+    # WHY: one stable identity shared with the MCP server, so web and MCP write the SAME
+    # understanding ledger instead of forking per-session users.
+    return JsonIdentity(_ROOT / "feynman_user.json")
+
+
+def _log_event(*, concept: Concept, kind: str, score: float, missed: list[str]) -> None:
+    try:
+        tags = _make_tagger().tag(missed)
+    except Exception:
+        tags = []
+    _make_learner_log().append(
+        ReviewEvent(concept_id=concept.id, concept_label=concept.label,
+                    kind=kind, score=score, missed=missed, tags=tags)
+    )
 
 
 # --- in-memory per-session state ---
@@ -154,6 +185,8 @@ def _session(sid: str) -> _Session:
 
 
 def _start_session(*, source_text: str, concept_label: str) -> StartResponse:
+    existing = _make_concept_store().find_by_label(concept_label)
+
     if source_text and source_text.strip():
         # grounded path: ingest the source, derive the retrieval query from the concept
         retriever = _make_retriever()
@@ -166,6 +199,14 @@ def _start_session(*, source_text: str, concept_label: str) -> StartResponse:
             doc_label=doc_label,
             retrieval_query=_make_expander().expand(concept_label=concept_label),
         )
+        # WHY: keep the existing concept id so the history stays attached to one concept
+        concept = existing.model_copy(update={"source_ref": source_ref, "rubric": []}) if existing \
+            else Concept(label=concept_label, source_ref=source_ref)
+        build_concept_rubric(concept=concept, retriever=retriever, judge=_make_judge())
+    elif existing and existing.rubric:
+        # returning concept, no new source -> reuse the persisted rubric (instant start, same history)
+        retriever = None
+        concept = existing
     else:
         # tier-3 (confirmed): no source -> the rubric is built from model knowledge, flagged.
         # retriever=None flows through as empty passages -> knowledge mode in judge/transfer.
@@ -176,12 +217,12 @@ def _start_session(*, source_text: str, concept_label: str) -> StartResponse:
             doc_label=MODEL_FALLBACK_LABEL,
             retrieval_query=concept_label,
         )
+        concept = Concept(label=concept_label, source_ref=source_ref)
+        build_concept_rubric(concept=concept, retriever=retriever, judge=_make_judge())
 
-    concept = Concept(label=concept_label, source_ref=source_ref)
-    # build the fixed scoring rubric once at setup (grounded if there's a source, else from knowledge)
-    build_concept_rubric(concept=concept, retriever=retriever, judge=_make_judge())
+    _make_concept_store().put(concept)
     sid = uuid.uuid4().hex
-    _SESSIONS[sid] = _Session(retriever, concept, uuid.uuid4(), _make_store())
+    _SESSIONS[sid] = _Session(retriever, concept, _make_identity().user_id(), _make_store())
     return StartResponse(session_id=sid, concept_label=concept.label)
 
 
@@ -218,6 +259,9 @@ def review(req: ReviewRequest) -> ReviewResponse:
     # separate request (/api/transfer/generate) while they read, instead of blocking this one.
     s.transfer_available = report.understanding_level >= TRANSFER_GATE
     s.probe = None
+    met = set(report.correct_points)
+    _log_event(concept=s.concept, kind="explain", score=report.understanding_level,
+               missed=[rp.criterion for rp in s.concept.rubric if rp.criterion not in met])
 
     return ReviewResponse(
         understanding_level=report.understanding_level,
@@ -253,6 +297,8 @@ def transfer(req: TransferRequest) -> TransferResponse:
     result = score_transfer(
         probe=s.probe, user_id=s.user_id, user_answer=req.answer, engine=_make_transfer(), store=s.store
     )
+    _log_event(concept=s.concept, kind="transfer", score=result.transfer_score,
+               missed=[m.criterion for m in result.missed])
 
     remediation_question = None
     if result.transfer_score < REMEDIATION_GATE and not s.remediation_done and result.missed:
