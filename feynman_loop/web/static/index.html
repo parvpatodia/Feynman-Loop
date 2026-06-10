@@ -4,105 +4,151 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Feynman-Loop</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <style>
   :root {
-    --bg: #0d0f13;
-    --panel: #161922;
-    --panel-2: #1c2029;
-    --border: #2a2f3a;
-    --border-soft: #222632;
-    --text: #e8eaee;
-    --muted: #9aa1ad;
-    --faint: #6b7280;
-    --accent: #4db6a4;
-    --accent-ink: #07120f;
-    --good: #62b97c;
-    --gap: #d8924a;
-    --danger: #d86a6a;
-    --radius: 14px;
-    --maxw: 1180px;
+    --bg: #0a0b0d;
+    --bg-2: #0e1013;
+    --panel: #141619;
+    --panel-2: #1a1d22;
+    --border: #24272e;
+    --border-soft: #1c1f25;
+    --text: #ecedef;
+    --muted: #9296a0;
+    --faint: #686c76;
+    --accent: #46c9b0;
+    --accent-2: #3aa894;
+    --accent-ink: #06120f;
+    --good: #5ec57e;
+    --gap: #e0a35a;
+    --danger: #e07070;
+    --radius: 16px;
+    --maxw: 1200px;
+    --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 8px 24px rgba(0,0,0,0.18);
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; }
   body {
-    background: var(--bg); color: var(--text);
-    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    -webkit-font-smoothing: antialiased;
+    background:
+      radial-gradient(900px 500px at 80% -10%, rgba(70,201,176,0.06), transparent 60%),
+      var(--bg);
+    color: var(--text);
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 15.5px; line-height: 1.6; letter-spacing: -0.006em;
+    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
   }
 
-  header.bar {
+  header.topbar {
     border-bottom: 1px solid var(--border-soft);
-    padding: 20px 28px;
-    position: sticky; top: 0; z-index: 5;
-    background: rgba(13,15,19,0.85); backdrop-filter: blur(8px);
+    padding: 16px 28px;
+    position: sticky; top: 0; z-index: 10;
+    background: rgba(10,11,13,0.72); backdrop-filter: saturate(140%) blur(10px);
   }
-  header.bar .inner { max-width: var(--maxw); margin: 0 auto; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
-  header.bar h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
-  header.bar p { margin: 0; color: var(--muted); font-size: 14px; }
+  header.topbar .inner { max-width: var(--maxw); margin: 0 auto; display: flex; align-items: center; gap: 14px; }
+  .mark {
+    width: 30px; height: 30px; border-radius: 9px; flex: none;
+    display: grid; place-items: center;
+    background: linear-gradient(150deg, var(--accent), var(--accent-2));
+    box-shadow: 0 2px 10px rgba(70,201,176,0.35);
+  }
+  .mark svg { width: 17px; height: 17px; }
+  header .titles { display: flex; flex-direction: column; }
+  header h1 { font-size: 16px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  header p { margin: 0; color: var(--muted); font-size: 13px; }
 
   main {
-    max-width: var(--maxw); margin: 0 auto; padding: 28px;
-    display: grid; grid-template-columns: 1fr 1fr; gap: 22px; align-items: start;
+    max-width: var(--maxw); margin: 0 auto; padding: 30px 28px 90px;
+    display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 22px; align-items: start;
   }
   .col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
-  .col-feedback { position: sticky; top: 84px; }
-  @media (max-width: 920px) {
-    main { grid-template-columns: 1fr; }
+  .col-feedback { position: sticky; top: 86px; }
+  @media (max-width: 940px) {
+    main { grid-template-columns: 1fr; padding: 22px 18px 70px; }
     .col-feedback { position: static; }
   }
 
-  .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px 24px; }
-  .card.muted { background: transparent; border-style: dashed; color: var(--faint); text-align: center; padding: 40px 24px; }
-  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 16px; font-weight: 600; }
-  .step { color: var(--accent); margin-right: 8px; }
+  .card {
+    background: linear-gradient(180deg, var(--panel), var(--bg-2));
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 22px 24px; box-shadow: var(--shadow);
+    animation: rise .34s cubic-bezier(.2,.7,.3,1) both;
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  .card.muted { background: transparent; border-style: dashed; box-shadow: none; color: var(--faint); text-align: center; padding: 44px 24px; }
+  .card h2 { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); margin: 0 0 16px; font-weight: 600; display: flex; align-items: center; }
+  .step {
+    display: inline-grid; place-items: center; width: 20px; height: 20px; margin-right: 10px;
+    border-radius: 6px; background: rgba(70,201,176,0.12); color: var(--accent);
+    font-size: 11px; letter-spacing: 0;
+  }
 
-  label { display: block; font-size: 13px; color: var(--muted); margin: 14px 0 6px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 14px 0 6px; font-weight: 500; }
   label:first-of-type { margin-top: 0; }
   input[type="text"], input:not([type]), textarea {
     width: 100%; background: var(--panel-2); color: var(--text);
-    border: 1px solid var(--border); border-radius: 9px; padding: 11px 13px; font: inherit; resize: vertical;
+    border: 1px solid var(--border); border-radius: 10px; padding: 11px 13px;
+    font: inherit; letter-spacing: inherit; resize: vertical; transition: border-color .15s, box-shadow .15s;
   }
-  textarea { min-height: 120px; line-height: 1.6; }
-  input:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(77,182,164,0.15); }
+  textarea { min-height: 124px; line-height: 1.6; }
+  input::placeholder, textarea::placeholder { color: var(--faint); }
+  input:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(70,201,176,0.16); }
   input[type="file"] { padding: 9px 12px; color: var(--muted); }
+  input[type="file"]::file-selector-button {
+    background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    border-radius: 7px; padding: 6px 12px; margin-right: 12px; cursor: pointer; font: inherit;
+  }
 
   .row { display: flex; align-items: center; gap: 12px; margin-top: 16px; flex-wrap: wrap; }
   button {
-    background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 9px;
-    padding: 11px 20px; font: inherit; font-weight: 600; cursor: pointer; transition: opacity .15s, transform .05s;
+    background: linear-gradient(180deg, var(--accent), var(--accent-2)); color: var(--accent-ink);
+    border: 0; border-radius: 10px; padding: 10px 18px; font: inherit; font-weight: 600; cursor: pointer;
+    transition: transform .06s ease, box-shadow .15s ease, opacity .15s ease;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.3);
   }
-  button:hover { opacity: 0.92; }
+  button:hover { box-shadow: 0 4px 14px rgba(70,201,176,0.28); }
   button:active { transform: translateY(1px); }
-  button:disabled { opacity: 0.45; cursor: default; }
-  .hint { color: var(--faint); font-size: 13px; }
-  button.mic { background: transparent; color: var(--accent); border: 1px solid var(--border); padding: 9px 14px; }
-  button.mic:hover { border-color: var(--accent); opacity: 1; }
+  button:disabled { opacity: 0.45; cursor: default; box-shadow: none; }
+  button.mic { background: transparent; color: var(--accent); border: 1px solid var(--border); box-shadow: none; font-weight: 500; }
+  button.mic:hover { border-color: var(--accent); box-shadow: none; }
   button.mic.recording { color: var(--danger); border-color: var(--danger); }
+  .hint { color: var(--faint); font-size: 12.5px; }
 
   .hidden { display: none; }
-  .score { font-size: 40px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
-  .score small { font-size: 14px; font-weight: 400; color: var(--muted); letter-spacing: 0; }
-  .block-title { color: var(--muted); font-size: 13px; margin: 18px 0 8px; }
+  .score { font-size: 42px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.05; }
+  .score small { font-size: 13px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+  .progress { height: 6px; background: var(--panel-2); border-radius: 999px; overflow: hidden; margin: 12px 0 4px; }
+  .progress-fill { height: 100%; width: 0; border-radius: 999px; background: linear-gradient(90deg, var(--accent-2), var(--accent)); transition: width .5s cubic-bezier(.2,.7,.3,1); }
+  .block-title { color: var(--muted); font-size: 12.5px; font-weight: 600; margin: 20px 0 9px; }
   ul { margin: 0; padding-left: 0; list-style: none; }
-  li { margin: 0 0 14px; }
+  li { margin: 0 0 13px; }
   .right { color: var(--good); }
   .gap { color: var(--gap); }
   .quote {
-    margin: 7px 0 0; padding: 9px 13px; border-left: 3px solid var(--border);
-    background: var(--panel-2); border-radius: 0 7px 7px 0; color: var(--muted); font-size: 14px; line-height: 1.55;
+    margin: 7px 0 0; padding: 9px 13px; border-left: 2px solid var(--border);
+    background: var(--panel-2); border-radius: 0 8px 8px 0; color: var(--muted); font-size: 13.5px; line-height: 1.55;
   }
-  .quote .src { display: block; font-size: 12px; color: var(--accent); margin-bottom: 4px; font-weight: 600; }
-  .meta { color: var(--muted); font-size: 13px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border-soft); }
-  .loading { color: var(--accent); font-size: 14px; margin-top: 12px; }
-  .err { color: var(--danger); font-size: 14px; margin-top: 12px; }
-  hr.sep { border: 0; border-top: 1px solid var(--border-soft); margin: 18px 0; }
+  .quote .src { display: block; font-size: 11.5px; color: var(--accent); margin-bottom: 3px; font-weight: 600; letter-spacing: 0.01em; }
+  .meta { color: var(--muted); font-size: 13px; margin-top: 18px; padding-top: 15px; border-top: 1px solid var(--border-soft); }
+  .loading { color: var(--accent); font-size: 13.5px; }
+  .loading::after { content: ""; display: inline-block; width: 12px; text-align: left; animation: dots 1.2s steps(4,end) infinite; }
+  @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+  .err { color: var(--danger); font-size: 13.5px; margin-top: 12px; }
 </style>
 </head>
 <body>
-<header class="bar">
+<header class="topbar">
   <div class="inner">
-    <h1>Feynman-Loop</h1>
-    <p>Explain a concept in your own words. It finds the gap against your own source, then makes you apply it.</p>
+    <span class="mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#06120f" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 4v4h4" />
+      </svg>
+    </span>
+    <div class="titles">
+      <h1>Feynman-Loop</h1>
+      <p>Explain a concept in your own words. It finds the gap against your own source, then makes you apply it.</p>
+    </div>
   </div>
 </header>
 
@@ -119,7 +165,7 @@
       <input id="concept" type="text" placeholder="Backpropagation" />
       <div class="row">
         <button id="startBtn" onclick="startSession()">Start</button>
-        <span class="loading hidden" id="setupLoading">Indexing your source...</span>
+        <span class="loading hidden" id="setupLoading">Indexing your source</span>
       </div>
       <div class="err hidden" id="setupErr"></div>
     </section>
@@ -132,7 +178,7 @@
         <button id="explainBtn" onclick="submitExplanation()">Submit explanation</button>
         <button type="button" class="mic" id="explainMic" onclick="toggleMic('explanation', this)">&#127908; Speak</button>
         <span class="hint">Type or speak. Edit and submit again any time.</span>
-        <span class="loading hidden" id="explainLoading">Judging against your source...</span>
+        <span class="loading hidden" id="explainLoading">Judging against your source</span>
       </div>
       <div class="err hidden" id="explainErr"></div>
     </section>
@@ -146,7 +192,7 @@
         <button id="transferBtn" onclick="submitTransfer()">Submit answer</button>
         <button type="button" class="mic" id="transferMic" onclick="toggleMic('answer', this)">&#127908; Speak</button>
         <span class="hint">Type or speak.</span>
-        <span class="loading hidden" id="transferLoading">Scoring against the rubric...</span>
+        <span class="loading hidden" id="transferLoading">Scoring against the rubric</span>
       </div>
       <div class="err hidden" id="transferErr"></div>
     </section>
@@ -160,7 +206,7 @@
       <div class="row">
         <button id="remediationBtn" onclick="submitRemediation()">Submit retry</button>
         <button type="button" class="mic" id="remediationMic" onclick="toggleMic('remediationAnswer', this)">&#127908; Speak</button>
-        <span class="loading hidden" id="remediationLoading">Scoring...</span>
+        <span class="loading hidden" id="remediationLoading">Scoring</span>
       </div>
       <div class="err hidden" id="remediationErr"></div>
     </section>
@@ -175,6 +221,7 @@
     <section class="card hidden" id="result">
       <h2>What it found</h2>
       <div class="score" id="understanding"></div>
+      <div class="progress"><div class="progress-fill" id="understandingBar"></div></div>
       <div id="correct"></div>
       <div id="gaps"></div>
       <div class="meta" id="due"></div>
@@ -183,6 +230,7 @@
     <section class="card hidden" id="transferResult">
       <h2>Transfer result</h2>
       <div class="score" id="transferScore"></div>
+      <div class="progress"><div class="progress-fill" id="transferBar"></div></div>
       <div id="transferMet"></div>
       <div id="transferMissed"></div>
     </section>
@@ -241,7 +289,6 @@ async function startSession() {
 }
 
 function resetFeedback() {
-  // a fresh explanation clears stale feedback and any open transfer/retry
   hide("transfer"); hide("transferResult"); hide("remediation");
   document.getElementById("answer").value = "";
 }
@@ -266,7 +313,9 @@ async function submitExplanation() {
 
 function renderReview(r) {
   hide("feedbackPlaceholder");
-  document.getElementById("understanding").innerHTML = `${Math.round(r.understanding_level * 100)}% <small>understanding</small>`;
+  const pct = Math.round(r.understanding_level * 100);
+  document.getElementById("understanding").innerHTML = `${pct}% <small>understanding</small>`;
+  document.getElementById("understandingBar").style.width = pct + "%";
   document.getElementById("correct").innerHTML = r.correct_points.length
     ? `<div class="block-title">What you got right</div><ul>${r.correct_points.map(p => `<li class="right">&#10003; ${escapeHtml(p)}</li>`).join("")}</ul>` : "";
   document.getElementById("gaps").innerHTML = r.gaps.length
@@ -279,13 +328,13 @@ function renderReview(r) {
     document.getElementById("transferQuestion").textContent = "Generating a transfer challenge...";
     document.getElementById("answer").value = "";
     show("transfer");
-    loadTransferQuestion();  // deferred: the gap is already visible while this loads
+    loadTransferQuestion();
   }
 }
 
 async function loadTransferQuestion() {
   const btn = document.getElementById("transferBtn");
-  btn.disabled = true;  // can't answer until the question is here
+  btn.disabled = true;
   try {
     const r = await post("/api/transfer/generate", { session_id: sessionId });
     document.getElementById("transferQuestion").textContent = r.question;
@@ -322,7 +371,7 @@ async function submitRemediation() {
   try {
     const r = await post("/api/transfer", { session_id: sessionId, answer });
     renderTransfer(r);
-    hide("remediation");  // bounded: one retry only
+    hide("remediation");
   } catch (e) {
     setErr("remediationErr", e.message);
   } finally {
@@ -332,7 +381,9 @@ async function submitRemediation() {
 }
 
 function renderTransfer(r) {
-  document.getElementById("transferScore").innerHTML = `${Math.round(r.transfer_score * 100)}% <small>applied correctly</small>`;
+  const pct = Math.round(r.transfer_score * 100);
+  document.getElementById("transferScore").innerHTML = `${pct}% <small>applied correctly</small>`;
+  document.getElementById("transferBar").style.width = pct + "%";
   document.getElementById("transferMet").innerHTML = r.met.length
     ? `<div class="block-title">You applied correctly</div><ul>${r.met.map(m => `<li class="right">&#10003; ${escapeHtml(m)}</li>`).join("")}</ul>` : "";
   document.getElementById("transferMissed").innerHTML = r.missed.length
@@ -340,7 +391,7 @@ function renderTransfer(r) {
   show("transferResult");
 
   if (r.remediation_question) {
-    hide("transfer");  // avoid scoring the original answer against the new (remediation) rubric
+    hide("transfer");
     document.getElementById("remediationQuestion").textContent = r.remediation_question;
     document.getElementById("remediationAnswer").value = "";
     show("remediation");
@@ -352,7 +403,7 @@ let _recognition = null;
 function toggleMic(textareaId, btn) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) return;
-  if (_recognition) { _recognition.stop(); return; }   // already recording -> toggle off
+  if (_recognition) { _recognition.stop(); return; }
   const ta = document.getElementById(textareaId);
   const base = ta.value.trim() ? ta.value.trim() + " " : "";
   let finalText = "";
@@ -376,7 +427,6 @@ function toggleMic(textareaId, btn) {
   _recognition.start();
 }
 
-// hide the mic buttons where speech recognition isn't supported (e.g. Firefox)
 if (!("webkitSpeechRecognition" in window) && !("SpeechRecognition" in window)) {
   document.querySelectorAll(".mic").forEach((b) => b.classList.add("hidden"));
 }
