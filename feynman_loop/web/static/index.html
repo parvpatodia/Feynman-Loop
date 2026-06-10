@@ -136,6 +136,13 @@
   @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
   .err { color: var(--danger); font-size: 13.5px; margin-top: 12px; }
   .note { font-size: 12.5px; color: var(--gap); background: rgba(224,163,90,0.10); border: 1px solid rgba(224,163,90,0.28); border-radius: 9px; padding: 9px 12px; margin: 0 0 14px; }
+  /* WHY: feedback (probes, criteria, quotes, questions) is not selectable, so it can't be copied
+     back into the answer box. The textareas/inputs stay selectable. */
+  #gaps, #correct, #transferMet, #transferMissed, #transferQuestion, #remediationQuestion, .quote {
+    user-select: none; -webkit-user-select: none;
+  }
+  button.linkbtn { background: transparent; color: var(--accent); border: 0; box-shadow: none; padding: 8px 0 0; font-size: 13px; font-weight: 500; cursor: pointer; }
+  button.linkbtn:hover { text-decoration: underline; box-shadow: none; }
 </style>
 </head>
 <body>
@@ -321,12 +328,21 @@ function renderReview(r) {
   document.getElementById("understandingBar").style.width = pct + "%";
   document.getElementById("correct").innerHTML = r.correct_points.length
     ? `<div class="block-title">What you got right</div><ul>${r.correct_points.map(p => `<li class="right">&#10003; ${escapeHtml(p)}</li>`).join("")}</ul>` : "";
-  const gapItem = (g) => r.grounded
-    ? `<li class="gap">&bull; ${escapeHtml(g.description)}<div class="quote"><span class="src">revisit: ${escapeHtml(g.doc_label)}</span></div></li>`
-    : `<li class="gap">&bull; ${escapeHtml(g.description)}</li>`;  // tier-3: no source to revisit
-  document.getElementById("gaps").innerHTML = r.gaps.length
-    ? `<div class="block-title">Gaps to close (questions)</div><ul>${r.gaps.map(gapItem).join("")}</ul>`
-    : `<div class="block-title">No gaps found.</div>`;
+  const GAP_CAP = 3;
+  const gapItem = (g, i) => {
+    const src = r.grounded ? `<div class="quote"><span class="src">revisit: ${escapeHtml(g.doc_label)}</span></div>` : "";
+    const extra = i >= GAP_CAP ? " extra hidden" : "";  // beyond the cap: hidden until "view all"
+    return `<li class="gap${extra}">&bull; ${escapeHtml(g.description)}${src}</li>`;
+  };
+  if (r.gaps.length) {
+    let html = `<div class="block-title">Gaps to close (questions)</div><ul>${r.gaps.map(gapItem).join("")}</ul>`;
+    if (r.gaps.length > GAP_CAP) {
+      html += `<button type="button" class="linkbtn" onclick="viewAllGaps(this)">View all ${r.gaps.length} gaps</button>`;
+    }
+    document.getElementById("gaps").innerHTML = html;
+  } else {
+    document.getElementById("gaps").innerHTML = `<div class="block-title">No gaps found.</div>`;
+  }
   document.getElementById("due").textContent = `Next review due ${r.next_due} (review #${r.review_count})`;
   show("result");
 
@@ -336,6 +352,11 @@ function renderReview(r) {
     show("transfer");
     loadTransferQuestion();
   }
+}
+
+function viewAllGaps(btn) {
+  document.getElementById("gaps").querySelectorAll(".gap.extra").forEach((e) => e.classList.remove("hidden"));
+  btn.remove();
 }
 
 async function loadTransferQuestion() {
