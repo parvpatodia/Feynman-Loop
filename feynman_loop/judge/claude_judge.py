@@ -16,6 +16,8 @@ doc_id/doc_label, so a rubric point can't cite a source that doesn't exist.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from anthropic import Anthropic
 from pydantic import BaseModel
 
@@ -61,7 +63,9 @@ class _RubricDraft(BaseModel):
 
 class _CriterionStatus(BaseModel):
     index: int
-    status: str   # "met" | "partial" | "missed"
+    # WHY: a Literal -> the JSON schema enum constrains the model to exactly these three values,
+    # so a capitalized/padded variant can't silently miss the score lookup and count as 0.
+    status: Literal["met", "partial", "missed"]
     probe: str    # a question targeting this point; shown as the gap when not fully met
 
 

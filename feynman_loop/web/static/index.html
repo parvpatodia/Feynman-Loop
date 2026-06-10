@@ -166,7 +166,7 @@
       <input id="concept" type="text" placeholder="Backpropagation" />
       <div class="row">
         <button id="startBtn" onclick="startSession()">Start</button>
-        <span class="loading hidden" id="setupLoading">Indexing your source</span>
+        <span class="loading hidden" id="setupLoading">Preparing your check</span>
       </div>
       <div class="err hidden" id="setupErr"></div>
     </section>
@@ -321,9 +321,12 @@ function renderReview(r) {
   document.getElementById("understandingBar").style.width = pct + "%";
   document.getElementById("correct").innerHTML = r.correct_points.length
     ? `<div class="block-title">What you got right</div><ul>${r.correct_points.map(p => `<li class="right">&#10003; ${escapeHtml(p)}</li>`).join("")}</ul>` : "";
+  const gapItem = (g) => r.grounded
+    ? `<li class="gap">&bull; ${escapeHtml(g.description)}<div class="quote"><span class="src">revisit: ${escapeHtml(g.doc_label)}</span></div></li>`
+    : `<li class="gap">&bull; ${escapeHtml(g.description)}</li>`;  // tier-3: no source to revisit
   document.getElementById("gaps").innerHTML = r.gaps.length
-    ? `<div class="block-title">Gaps to close (questions, grounded in your source)</div><ul>${r.gaps.map(g => `<li class="gap">&bull; ${escapeHtml(g.description)}<div class="quote"><span class="src">revisit: ${escapeHtml(g.doc_label)}</span></div></li>`).join("")}</ul>`
-    : `<div class="block-title">No gaps found against your source.</div>`;
+    ? `<div class="block-title">Gaps to close (questions)</div><ul>${r.gaps.map(gapItem).join("")}</ul>`
+    : `<div class="block-title">No gaps found.</div>`;
   document.getElementById("due").textContent = `Next review due ${r.next_due} (review #${r.review_count})`;
   show("result");
 
