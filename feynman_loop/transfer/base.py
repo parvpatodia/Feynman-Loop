@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from feynman_loop.models import Concept, TransferProbe, TransferResult
+from feynman_loop.models import Concept, RubricPoint, TransferProbe, TransferResult
 from feynman_loop.retrieval.base import RetrievedPassage
 
 
@@ -18,6 +18,12 @@ class TransferEngine(ABC):
         self, *, concept: Concept, passages: list[RetrievedPassage]
     ) -> TransferProbe:
         """Generate a novel application question + a rubric grounded in the passages."""
+
+    @abstractmethod
+    def generate_remediation(
+        self, *, concept: Concept, passages: list[RetrievedPassage], missed: list[RubricPoint]
+    ) -> TransferProbe:
+        """Generate ONE narrower application question targeting the principles the learner missed."""
 
     @abstractmethod
     def score_answer(self, *, probe: TransferProbe, user_answer: str) -> TransferResult:

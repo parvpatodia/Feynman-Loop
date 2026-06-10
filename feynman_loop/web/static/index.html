@@ -228,6 +228,14 @@ function renderTransfer(r) {
     ? `<p>Missed:</p><ul>${r.missed.map(m =>
         `<li class="gap">• ${escapeHtml(m.criterion)}${quoteBlock(m.doc_label, m.quote)}</li>`).join("")}</ul>` : "";
   show("transferResult");
+
+  if (r.remediation_question) {
+    // one narrower retry, targeted at what was missed
+    document.getElementById("transferQuestion").textContent = "Narrower retry: " + r.remediation_question;
+    document.getElementById("answer").value = "";
+    show("transfer");
+    document.getElementById("answer").focus();
+  }
 }
 </script>
 </body>

@@ -33,6 +33,13 @@ For each numbered rubric criterion, decide whether the answer satisfies it (met 
 Judge only against the criteria given; do not invent new requirements. Be fair: accept a correct
 idea expressed in different words, and do not reward fluent text that misses the criterion."""
 
+_REMEDIATION_SYSTEM = """The learner just failed a transfer task on the specific points listed.
+Generate ONE narrower, more approachable application question that targets just those missed
+principle(s), so they can rebuild from the gap rather than face the full problem again. Same
+rules as before: a novel application (not a restatement), and EVERY rubric point grounded in a
+source passage by index with an exact quote. If a point can't be grounded, leave it out. Use only
+the passages provided."""
+
 
 # ---- structured outputs the model fills (no identifiers; index only, by design) ----
 class _RubricItem(BaseModel):
@@ -79,6 +86,33 @@ class ClaudeTransfer(TransferEngine):
             output_format=_ProbeDraft,
         ).parsed_output
 
+        return self._build_probe(concept=concept, draft=draft, passages=passages)
+
+    def generate_remediation(
+        self, *, concept: Concept, passages: list[RetrievedPassage], missed: list[RubricPoint]
+    ) -> TransferProbe:
+        if not passages:
+            raise ValueError(f"No passages to ground a remediation probe for {concept.label!r}.")
+        numbered = "\n\n".join(f"[{i}] {p.text}" for i, p in enumerate(passages))
+        missed_str = "\n".join(f"- {m.criterion}" for m in missed) or "(unspecified)"
+        user_msg = (
+            f"Concept: {concept.label}\n\n"
+            f"The learner just failed to apply these specific points:\n{missed_str}\n\n"
+            f"Source passages:\n{numbered}"
+        )
+        draft: _ProbeDraft = self._client.messages.parse(
+            model=self._model,
+            max_tokens=16000,
+            thinking={"type": "adaptive"},
+            system=_REMEDIATION_SYSTEM,
+            messages=[{"role": "user", "content": user_msg}],
+            output_format=_ProbeDraft,
+        ).parsed_output
+        return self._build_probe(concept=concept, draft=draft, passages=passages)
+
+    def _build_probe(
+        self, *, concept: Concept, draft: _ProbeDraft, passages: list[RetrievedPassage]
+    ) -> TransferProbe:
         rubric: list[RubricPoint] = []
         for item in draft.rubric:
             # WHY: clamp the index and read identifiers from the real passage; the model never
@@ -91,12 +125,10 @@ class ClaudeTransfer(TransferEngine):
                     citation=Citation(doc_label=p.doc_label, doc_id=p.doc_id, quote=item.quote),
                 )
             )
-
         if not rubric:
             # WHY: no grounded rubric means we cannot fairly score an answer. Refuse to ask
             # rather than test against invented truth (the trust criterion).
             raise ValueError("Could not ground a transfer rubric in the source; not asking.")
-
         return TransferProbe(concept_id=concept.id, question=draft.question, rubric=rubric)
 
     def score_answer(self, *, probe: TransferProbe, user_answer: str) -> TransferResult:

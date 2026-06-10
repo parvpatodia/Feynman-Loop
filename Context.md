@@ -150,8 +150,15 @@ All four planning decisions are now settled:
 - `user_state.transfer_level` (separate from understanding_level; restate vs apply).
 - `loop.generate_transfer_probe` + `loop.score_transfer`; `TRANSFER_GATE = 0.6` (transfer only
   fires after a solid explanation). CLI wires it after explain-it-back.
-- 22 tests green. NOTE: the live generate+score Claude path is not yet run end-to-end (needs a
-  live key); offline tests cover wiring, grounding, and scoring math. Verify with a real CLI run.
+- Offline tests cover wiring, grounding, scoring math.
+
+**Post-transfer follow-up (A+B, decided 2026-06-09).** After a transfer is scored:
+- A: the grounded missed points are shown, and `score_transfer` recomputes `next_due_at` from
+  `min(understanding_level, transfer_score)` (weakest-link: you don't own a concept until you can
+  both state AND apply it, so a weak transfer pulls it back soon). `REMEDIATION_GATE = 0.6`.
+- B: if transfer < gate, the system offers ONE narrower retry (`generate_remediation` targets the
+  missed principle, same index-grounding), bounded to a single attempt (`_Session.remediation_done`).
+- 31 tests green. Live generate/score/remediation Claude paths still need a real run to confirm.
 
 **Remaining to actually demo:**
 - Run it LIVE: `export ANTHROPIC_API_KEY=...`, then

@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from feynman_loop.judge.base import Judge
-from feynman_loop.models import Concept, GapReport, TransferProbe, TransferResult, UserState
+from feynman_loop.models import Concept, GapReport, RubricPoint, TransferProbe, TransferResult, UserState
 from feynman_loop.retrieval.base import Retriever
 from feynman_loop.scheduling import compute_next_due
 from feynman_loop.storage import JsonUserStateStore
@@ -19,6 +19,9 @@ from feynman_loop.transfer.base import TransferEngine
 # WHY: don't probe application until the baseline explanation is solid; testing transfer on
 # someone who can't even restate the concept measures nothing (Decision 12).
 TRANSFER_GATE = 0.6
+
+# WHY: if a transfer is weak, offer ONE narrower retry focused on the gap (bounded, not a loop).
+REMEDIATION_GATE = 0.6
 
 
 def run_review(
@@ -82,14 +85,33 @@ def score_transfer(
     user_answer: str,
     engine: TransferEngine,
     store: JsonUserStateStore | None = None,
+    now: datetime | None = None,
 ) -> TransferResult:
-    """Score the answer against the grounded rubric and record transfer_level on user-state."""
+    """Score the answer against the grounded rubric, record transfer_level, and pull the concept
+    back sooner when transfer is weak."""
+    now = now or datetime.now(timezone.utc)
     result = engine.score_answer(probe=probe, user_answer=user_answer)
     if store is not None:
         state = store.get(user_id=user_id, concept_id=probe.concept_id)
         if state is not None:
-            # WHY: transfer_level is its own signal, written here after a transfer probe; it does
-            # not overwrite understanding_level (restating and applying are different things).
+            # WHY: transfer_level is its own signal (restating and applying are different things).
             state.transfer_level = result.transfer_score
+            # WHY: weakest-link. The lower of (can-restate, can-apply) governs when it resurfaces,
+            # so a poor transfer overrides a good explanation and brings the concept back soon.
+            effective = min(state.understanding_level, result.transfer_score)
+            state.next_due_at = compute_next_due(effective, now=now)
             store.put(state)
     return result
+
+
+def generate_remediation_probe(
+    *,
+    concept: Concept,
+    retriever: Retriever,
+    engine: TransferEngine,
+    missed: list[RubricPoint],
+    k: int = 4,
+) -> TransferProbe:
+    """A narrower retry focused on the points the learner missed. The caller bounds it to one."""
+    passages = retriever.retrieve(query=concept.source_ref.retrieval_query, k=k)
+    return engine.generate_remediation(concept=concept, passages=passages, missed=missed)

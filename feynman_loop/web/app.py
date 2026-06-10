@@ -18,7 +18,14 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from feynman_loop.judge.claude_judge import ClaudeJudge
-from feynman_loop.loop import TRANSFER_GATE, generate_transfer_probe, run_review, score_transfer
+from feynman_loop.loop import (
+    REMEDIATION_GATE,
+    TRANSFER_GATE,
+    generate_remediation_probe,
+    generate_transfer_probe,
+    run_review,
+    score_transfer,
+)
 from feynman_loop.models import Concept, SourceRef, SourceTier, TransferProbe
 from feynman_loop.retrieval.chroma_store import ChromaRetriever, sentence_transformer_embedder
 from feynman_loop.retrieval.query_expansion import ClaudeQueryExpander
@@ -64,6 +71,7 @@ class _Session:
         self.user_id = user_id
         self.store = store
         self.probe: TransferProbe | None = None  # set after a gated review
+        self.remediation_done = False  # WHY: bound remediation to a single retry, not a loop
 
 
 _SESSIONS: dict[str, _Session] = {}
@@ -115,6 +123,7 @@ class TransferResponse(BaseModel):
     transfer_score: float
     met: list[str]
     missed: list[MissOut]
+    remediation_question: str | None = None  # a narrower retry, offered once when transfer is weak
 
 
 app = FastAPI(title="Feynman-Loop")
@@ -189,6 +198,16 @@ def transfer(req: TransferRequest) -> TransferResponse:
     result = score_transfer(
         probe=s.probe, user_id=s.user_id, user_answer=req.answer, engine=_make_transfer(), store=s.store
     )
+
+    remediation_question = None
+    if result.transfer_score < REMEDIATION_GATE and not s.remediation_done and result.missed:
+        # WHY: one bounded retry focused on what they missed; the next probe becomes the active one.
+        s.remediation_done = True
+        s.probe = generate_remediation_probe(
+            concept=s.concept, retriever=s.retriever, engine=_make_transfer(), missed=result.missed
+        )
+        remediation_question = _clean(s.probe.question)
+
     return TransferResponse(
         transfer_score=result.transfer_score,
         met=[_clean(m) for m in result.met],
@@ -196,6 +215,7 @@ def transfer(req: TransferRequest) -> TransferResponse:
             MissOut(criterion=_clean(m.criterion), doc_label=m.citation.doc_label, quote=_clean(m.citation.quote))
             for m in result.missed
         ],
+        remediation_question=remediation_question,
     )
 
 

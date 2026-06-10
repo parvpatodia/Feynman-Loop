@@ -96,6 +96,18 @@ def test_generate_probe_refuses_when_nothing_grounds():
         engine.generate_probe(concept=_concept(), passages=_passages())
 
 
+def test_generate_remediation_grounds_in_real_passages():
+    passages = _passages()
+    draft = _ProbeDraft(
+        question="Narrower: where does the chain rule first apply in a 2-layer net?",
+        rubric=[_RubricItem(criterion="identifies the chain-rule step", passage_index=0, quote="chain rule recursively")],
+    )
+    engine = ClaudeTransfer(client=_FakeClient(probe_draft=draft))
+    missed = [RubricPoint(criterion="uses the chain rule", citation=Citation(doc_label="d", quote="q"))]
+    probe = engine.generate_remediation(concept=_concept(), passages=passages, missed=missed)
+    assert probe.rubric[0].citation.doc_id == passages[0].doc_id  # grounded in the real passage
+
+
 def test_score_answer_computes_fraction_and_split():
     cid = uuid4()
     probe = TransferProbe(
@@ -138,9 +150,15 @@ def test_score_transfer_records_separate_transfer_level(tmp_path):
             return TransferResult(concept_id=cid, question="q", user_answer=user_answer,
                                   transfer_score=0.5, met=[], missed=[])
 
-    result = score_transfer(probe=probe, user_id=uid, user_answer="x", engine=_FakeEngine(), store=store)
+    from datetime import datetime, timezone
+
+    from feynman_loop.scheduling import compute_next_due
+
+    now = datetime(2026, 6, 9, tzinfo=timezone.utc)
+    result = score_transfer(probe=probe, user_id=uid, user_answer="x", engine=_FakeEngine(), store=store, now=now)
 
     assert result.transfer_score == 0.5
     saved = store.get(user_id=uid, concept_id=cid)
     assert saved.transfer_level == 0.5
     assert saved.understanding_level == 0.7  # transfer did NOT clobber the explanation score
+    assert saved.next_due_at == compute_next_due(0.5, now=now)  # weakest-link: min(0.7, 0.5) governs

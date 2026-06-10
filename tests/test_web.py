@@ -49,6 +49,17 @@ class _FakeTransfer:
         return TransferResult(concept_id=probe.concept_id, question=probe.question,
                               user_answer=user_answer, transfer_score=1.0, met=["uses chain rule"], missed=[])
 
+    def generate_remediation(self, *, concept, passages, missed):
+        return TransferProbe(concept_id=concept.id, question="Narrower retry question.",
+                             rubric=[RubricPoint(criterion="x", citation=Citation(doc_label=passages[0].doc_label, quote="q"))])
+
+
+class _FakeLowTransfer(_FakeTransfer):
+    def score_answer(self, *, probe, user_answer):
+        return TransferResult(concept_id=probe.concept_id, question=probe.question, user_answer=user_answer,
+                              transfer_score=0.1, met=[],
+                              missed=[RubricPoint(criterion="missed it", citation=Citation(doc_label="d", quote="q"))])
+
 
 class _FakeExpander:
     def expand(self, *, concept_label):
@@ -97,3 +108,25 @@ def test_full_flow_session_review_transfer(client):
 def test_unknown_session_404(client):
     r = client.post("/api/review", json={"session_id": "nope", "explanation": "x"})
     assert r.status_code == 404
+
+
+def test_low_transfer_offers_one_bounded_remediation(monkeypatch, tmp_path):
+    from feynman_loop.storage import JsonUserStateStore
+
+    monkeypatch.setattr(webapp, "_make_retriever", lambda: _FakeRetriever())
+    monkeypatch.setattr(webapp, "_make_judge", lambda: _FakeJudge())
+    monkeypatch.setattr(webapp, "_make_transfer", lambda: _FakeLowTransfer())
+    monkeypatch.setattr(webapp, "_make_expander", lambda: _FakeExpander())
+    monkeypatch.setattr(webapp, "_make_store", lambda: JsonUserStateStore(tmp_path / "s.json"))
+    webapp._SESSIONS.clear()
+    c = TestClient(webapp.app)
+
+    sid = c.post("/api/session", json={"source_text": "chain rule. optimizer.", "concept_label": "Backprop"}).json()["session_id"]
+    c.post("/api/review", json={"session_id": sid, "explanation": "e"})  # judge 0.8 -> transfer offered
+
+    r = c.post("/api/transfer", json={"session_id": sid, "answer": "weak"}).json()
+    assert r["transfer_score"] == 0.1
+    assert r["remediation_question"]  # one retry offered
+
+    r2 = c.post("/api/transfer", json={"session_id": sid, "answer": "again"}).json()
+    assert r2["remediation_question"] is None  # bounded: no second remediation
