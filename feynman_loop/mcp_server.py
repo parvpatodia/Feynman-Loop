@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
@@ -56,7 +57,9 @@ def _make_expander():
 
 
 def _make_store():
-    return JsonUserStateStore("feynman_state.json")
+    # WHY: absolute path. Claude launches the server from an arbitrary cwd (often /), so a relative
+    # "feynman_state.json" would fail to write. Anchor it to the repo root (gitignored).
+    return JsonUserStateStore(Path(__file__).resolve().parent.parent / "feynman_state.json")
 
 
 class _Check:
