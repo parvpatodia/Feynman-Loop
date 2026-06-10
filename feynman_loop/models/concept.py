@@ -13,6 +13,8 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
+from feynman_loop.models.gap_report import RubricPoint
+
 
 def _utcnow() -> datetime:
     # WHY: timezone-aware UTC. datetime.utcnow() is deprecated and returns a naive datetime,
@@ -57,6 +59,9 @@ class Concept(BaseModel):
     id: UUID = Field(default_factory=uuid4)   # WHY: stable internal key, never the display name
     label: str                                # human-readable ("Backpropagation"), display only
     source_ref: SourceRef
+    # WHY: the key points a correct explanation must cover, built ONCE from the source at setup and
+    # reused for every review, so the understanding score is consistent and responsive across attempts.
+    rubric: list[RubricPoint] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=_utcnow)
 
     # NOTE: there is deliberately no goal_id here. Decision 11 moved the concept->goal tie into

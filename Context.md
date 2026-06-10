@@ -166,6 +166,20 @@ CLI `load_source(path)` handles both; web adds `POST /api/session/upload` (multi
 in the UI, reusing `_start_session`. Extracted text flows through the same chunk→embed→judge pipeline.
 Deps: pypdf, python-multipart. Real extraction verified with a generated PDF. 35 tests green.
 
+**Rubric-grounded scoring (post-demo fix #1, 2026-06-09).** Replaced the judge's holistic
+"understanding %" (a sticky model guess) with rubric scoring: `build_concept_rubric` derives the
+concept's key points from the source ONCE at setup (stored on `Concept.rubric`); every review
+scores the explanation against those FIXED points (met/partial/missed), and understanding_level
+is computed IN CODE from the statuses — accurate, responsive (cover a point → it rises), and
+consistent across attempts. Anti-gaming: gaps are PROBES (questions), never the missing fact
+verbatim; the scorer does not credit near-verbatim copying of the source; the ungameable mastery
+measure stays TRANSFER. `Judge` interface = `build_rubric` + `evaluate(concept, explanation)`
+(no passages at review time). `RubricPoint` moved to `gap_report.py` (shared). 37 tests green.
+NOTE: live "does it feel accurate" behavior needs a real-key run; offline tests verify the logic.
+
+**Still open / next:** #5 distribution (no-upload fallback + connectors/corpus vision) — Parv
+thinking about it. Then latency (#3), voice (#2), UI polish (#4)."
+
 **Remaining to actually demo:**
 - Run it LIVE: `export ANTHROPIC_API_KEY=...`, then
   `python -m feynman_loop.cli <source.txt> "<Concept>" "<retrieval query>"`. First run downloads

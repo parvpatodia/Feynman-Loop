@@ -23,11 +23,10 @@ def render_gap_report(report: GapReport) -> str:
         lines.extend(f"  + {p}" for p in report.correct_points)
 
     if report.gaps:
-        lines.append("\nGaps (each grounded in your own source):")
+        lines.append("\nGaps to close (questions, grounded in your source):")
         for g in report.gaps:
             lines.append(f"  - {_clean(g.description)}")
-            lines.append(f"      source: {g.citation.doc_label}")
-            lines.append(f'      "{_clean(g.citation.quote)}"')
+            lines.append(f"      revisit your source: {g.citation.doc_label}")
     else:
         lines.append("\nNo gaps found against your source.")
 

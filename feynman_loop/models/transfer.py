@@ -11,14 +11,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from feynman_loop.models.gap_report import Citation
-
-
-class RubricPoint(BaseModel):
-    """One thing a correct answer must contain, grounded in the source."""
-
-    criterion: str
-    citation: Citation  # WHY: the rubric point must trace to the source, or we'd grade on invention
+from feynman_loop.models.gap_report import RubricPoint
 
 
 class TransferProbe(BaseModel):

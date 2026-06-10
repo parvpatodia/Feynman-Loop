@@ -7,9 +7,9 @@ Three buckets:
 """
 
 from feynman_loop.models.concept import Concept, SourceRef, SourceTier
-from feynman_loop.models.gap_report import Citation, Gap, GapReport
+from feynman_loop.models.gap_report import Citation, Gap, GapReport, RubricPoint
 from feynman_loop.models.relevance import Goal, GoalStatus, GoalType, RelevanceLink
-from feynman_loop.models.transfer import RubricPoint, TransferProbe, TransferResult
+from feynman_loop.models.transfer import TransferProbe, TransferResult
 from feynman_loop.models.user_state import UserState
 
 __all__ = [

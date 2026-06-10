@@ -20,6 +20,13 @@ class Citation(BaseModel):
     quote: str                # the exact retrieved passage the judge relied on
 
 
+class RubricPoint(BaseModel):
+    """A grounded criterion: one idea a correct explanation or answer must contain."""
+
+    criterion: str
+    citation: Citation  # WHY: every criterion traces to the source, or we'd grade on invention
+
+
 class Gap(BaseModel):
     """One specific thing the user got wrong or skipped."""
 

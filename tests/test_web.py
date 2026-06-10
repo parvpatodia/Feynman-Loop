@@ -25,14 +25,17 @@ class _FakeRetriever:
 
 
 class _FakeJudge:
-    def evaluate(self, *, concept, user_explanation, passages):
+    def build_rubric(self, *, concept, passages):
+        return [RubricPoint(criterion="x", citation=Citation(doc_label=passages[0].doc_label, quote="q"))]
+
+    def evaluate(self, *, concept, user_explanation):
         return GapReport(
             concept_id=concept.id,
             user_explanation=user_explanation,
             understanding_level=0.8,  # above TRANSFER_GATE -> transfer should be offered
             correct_points=["computes gradients"],
-            gaps=[Gap(description="omits the optimizer step",
-                      citation=Citation(doc_label=passages[0].doc_label, quote="separate optimizer"))],
+            gaps=[Gap(description="What performs the weight update, and is it backprop?",
+                      citation=Citation(doc_label="src", quote="separate optimizer"))],
         )
 
 
@@ -93,7 +96,8 @@ def test_full_flow_session_review_transfer(client):
     assert r.status_code == 200
     body = r.json()
     assert body["understanding_level"] == 0.8
-    assert body["gaps"][0]["quote"] == "separate optimizer"
+    assert "weight update" in body["gaps"][0]["description"]  # gap is a probe, not the answer quote
+    assert "quote" not in body["gaps"][0]  # answer text is not handed to the user
     assert body["transfer_question"]  # offered because >= gate
     assert body["review_count"] == 1
 

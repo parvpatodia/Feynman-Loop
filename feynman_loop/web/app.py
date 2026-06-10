@@ -21,6 +21,7 @@ from feynman_loop.judge.claude_judge import ClaudeJudge
 from feynman_loop.loop import (
     REMEDIATION_GATE,
     TRANSFER_GATE,
+    build_concept_rubric,
     generate_remediation_probe,
     generate_transfer_probe,
     run_review,
@@ -95,9 +96,8 @@ class ReviewRequest(BaseModel):
 
 
 class GapOut(BaseModel):
-    description: str
+    description: str   # a probe (question), not the missing fact verbatim
     doc_label: str
-    quote: str
 
 
 class ReviewResponse(BaseModel):
@@ -153,6 +153,9 @@ def _start_session(*, source_text: str, concept_label: str) -> StartResponse:
             retrieval_query=retrieval_query,
         ),
     )
+    # WHY: build the concept's fixed scoring rubric once, here at setup, so every review scores
+    # against the same key points (consistent, responsive understanding score).
+    build_concept_rubric(concept=concept, retriever=retriever, judge=_make_judge())
     sid = uuid.uuid4().hex
     _SESSIONS[sid] = _Session(retriever, concept, uuid.uuid4(), _make_store())
     return StartResponse(session_id=sid, concept_label=concept.label)
@@ -182,7 +185,6 @@ def review(req: ReviewRequest) -> ReviewResponse:
         concept=s.concept,
         user_id=s.user_id,
         explanation=req.explanation,
-        retriever=s.retriever,
         judge=_make_judge(),
         store=s.store,
     )
@@ -199,7 +201,7 @@ def review(req: ReviewRequest) -> ReviewResponse:
         understanding_level=report.understanding_level,
         correct_points=[_clean(p) for p in report.correct_points],
         gaps=[
-            GapOut(description=_clean(g.description), doc_label=g.citation.doc_label, quote=_clean(g.citation.quote))
+            GapOut(description=_clean(g.description), doc_label=g.citation.doc_label)
             for g in report.gaps
         ],
         next_due=state.next_due_at.strftime("%Y-%m-%d") if state.next_due_at else "",

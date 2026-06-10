@@ -1,19 +1,17 @@
-"""ClaudeJudge: the concrete Judge backed by Anthropic Claude.
+"""ClaudeJudge: build a fixed rubric for a concept, then score explanations against it.
 
-It compares a user's explanation against the retrieved passages and returns a grounded
-GapReport. Two grounding-integrity choices, both load-bearing for the trust criterion:
+Why a fixed rubric: a holistic "understanding %" from the model is noisy and sticky, adding a
+correct sentence may not move it. Instead we derive the key points a correct explanation must
+cover ONCE from the source (build_rubric), then score each review against those same points. The
+percentage is computed in code from per-point statuses, so it is accurate, responsive (cover a
+missed point and it rises), and consistent across attempts.
 
-  1. The model judges ONLY against the passages we hand it (Decision 15). The system prompt
-     forbids outside knowledge. v1 guarantees a source at intake, so we always have passages;
-     if retrieval comes back empty, we abstain rather than let the model invent a verdict.
+Anti-gaming: gaps are returned as PROBES (questions), never the missing fact verbatim, and the
+scorer does not credit near-verbatim copying of the source as understanding. The ungameable
+measure of mastery stays the transfer step (applying the concept), which copying can't fake.
 
-  2. The model never emits citation identifiers. It references each passage by INDEX and
-     supplies the verbatim quote; the code maps the index back to the real doc_id / doc_label
-     from retrieval. This makes it impossible for the judge to hallucinate which source a gap
-     came from. The model reasons; the system owns the identifiers.
-
-Model id and the structured-output approach (messages.parse + Pydantic) follow the current
-Anthropic Python SDK.
+Grounding integrity: the model references passages by INDEX; the code maps the index to the real
+doc_id/doc_label, so a rubric point can't cite a source that doesn't exist.
 """
 
 from __future__ import annotations
@@ -22,101 +20,136 @@ from anthropic import Anthropic
 from pydantic import BaseModel
 
 from feynman_loop.judge.base import Judge
-from feynman_loop.models import Citation, Concept, Gap, GapReport
+from feynman_loop.models import Citation, Concept, Gap, GapReport, RubricPoint
 from feynman_loop.retrieval.base import RetrievedPassage
 
-# WHY: keep the model the smallest commodity component. Pinned here, swappable in one place.
 _MODEL = "claude-opus-4-8"
 
-_SYSTEM = """You are a grounding-strict judge of a learner's explanation of a single concept.
+_RUBRIC_SYSTEM = """List the key points a complete, correct explanation of the concept must
+contain, based ONLY on the source passages. Each point is one checkable idea (the essential
+mechanism, not trivia). Aim for 4-8 points. Ground every point in a passage: give the passage
+index and an exact quote. If a point cannot be grounded in a passage, leave it out. Use only the
+passages provided; never add outside knowledge."""
 
-You are given the concept name, the learner's explanation in their own words, and a numbered
-list of source passages. Judge the explanation ONLY against those passages. Do not use any
-outside knowledge, even for canonical concepts. If the passages do not cover part of the
-explanation, do not judge that part.
+_SCORE_SYSTEM = """Score a learner's explanation against a FIXED list of key points.
 
-For every gap you report, you must ground it: cite the passage (by its index) whose text
-contradicts or is missing from the explanation, and quote the exact span you relied on. A gap
-with no grounding passage is not allowed.
+For each numbered point, return a status:
+- "met": the explanation clearly conveys this idea in the learner's OWN words.
+- "partial": it touches the idea but is vague, incomplete, or mostly restates the source verbatim.
+- "missed": the idea is absent.
 
-Also report what the learner got right (correct_points), so the feedback is not purely
-negative. Set understanding_level between 0 and 1 for how well the explanation matches the
-grounded source. Be fair: reward a correct idea expressed in different words; do not penalize
-phrasing."""
-
-
-class _GapVerdict(BaseModel):
-    """One gap, as the MODEL reports it. Note: no doc_id/doc_label here, by design."""
-
-    description: str       # what is missing or wrong, plainly
-    passage_index: int     # which numbered passage grounds this gap
-    quote: str             # the exact span from that passage
+Do NOT credit near-verbatim copying of the source as understanding (that is "partial" at best).
+For every point that is not "met", write a probe: a question that prompts the learner to retrieve
+the missing idea WITHOUT revealing the answer. Judge only against the listed points; be fair to a
+correct idea expressed in different words."""
 
 
-class _JudgeVerdict(BaseModel):
-    """The full structured verdict the model returns. Code turns this into a GapReport."""
+class _RubricItem(BaseModel):
+    criterion: str
+    passage_index: int
+    quote: str
 
-    understanding_level: float
-    correct_points: list[str]
-    gaps: list[_GapVerdict]
+
+class _RubricDraft(BaseModel):
+    points: list[_RubricItem]
+
+
+class _CriterionStatus(BaseModel):
+    index: int
+    status: str   # "met" | "partial" | "missed"
+    probe: str    # a question targeting this point; shown as the gap when not fully met
+
+
+class _ScoreDraft(BaseModel):
+    scores: list[_CriterionStatus]
+
+
+_STATUS_VALUE = {"met": 1.0, "partial": 0.5, "missed": 0.0}
 
 
 class ClaudeJudge(Judge):
     def __init__(self, *, client: Anthropic | None = None, model: str = _MODEL) -> None:
-        # WHY: client is injectable so tests run offline with a fake and the provider stays swappable.
         self._client = client or Anthropic()
         self._model = model
 
-    def evaluate(
-        self,
-        *,
-        concept: Concept,
-        user_explanation: str,
-        passages: list[RetrievedPassage],
-    ) -> GapReport:
+    def build_rubric(
+        self, *, concept: Concept, passages: list[RetrievedPassage]
+    ) -> list[RubricPoint]:
         if not passages:
-            # WHY: Decision 15 — we never judge an ungrounded concept. Empty retrieval is a
-            # failure the caller handles (tell the user, skip), not a verdict the judge fabricates.
-            raise ValueError(
-                f"No passages to ground concept {concept.label!r}; refusing to judge ungrounded."
-            )
+            raise ValueError(f"No passages to build a rubric for {concept.label!r}.")
 
-        numbered = "\n\n".join(
-            f"[{i}] {p.text}" for i, p in enumerate(passages)
-        )
-        user_msg = (
-            f"Concept: {concept.label}\n\n"
-            f"Learner's explanation:\n{user_explanation}\n\n"
-            f"Source passages:\n{numbered}"
-        )
+        numbered = "\n\n".join(f"[{i}] {p.text}" for i, p in enumerate(passages))
+        user_msg = f"Concept: {concept.label}\n\nSource passages:\n{numbered}"
 
-        response = self._client.messages.parse(
+        draft: _RubricDraft = self._client.messages.parse(
             model=self._model,
             max_tokens=16000,
-            thinking={"type": "adaptive"},  # judging is reasoning-heavy; let Claude size its own thinking
-            system=_SYSTEM,
+            thinking={"type": "adaptive"},
+            system=_RUBRIC_SYSTEM,
             messages=[{"role": "user", "content": user_msg}],
-            output_format=_JudgeVerdict,
-        )
-        verdict: _JudgeVerdict = response.parsed_output
+            output_format=_RubricDraft,
+        ).parsed_output
 
-        gaps: list[Gap] = []
-        for gv in verdict.gaps:
-            # WHY: clamp a bad index into range rather than trust the model's number, then build
-            # the citation from the REAL passage. The model never names the source itself.
-            idx = gv.passage_index if 0 <= gv.passage_index < len(passages) else 0
+        rubric: list[RubricPoint] = []
+        for item in draft.points:
+            # WHY: clamp the index and read identifiers from the real passage; the model never
+            # supplies doc_id/doc_label, so a rubric point can't cite a source that doesn't exist.
+            idx = item.passage_index if 0 <= item.passage_index < len(passages) else 0
             p = passages[idx]
-            gaps.append(
-                Gap(
-                    description=gv.description,
-                    citation=Citation(doc_label=p.doc_label, doc_id=p.doc_id, quote=gv.quote),
+            rubric.append(
+                RubricPoint(
+                    criterion=item.criterion,
+                    citation=Citation(doc_label=p.doc_label, doc_id=p.doc_id, quote=item.quote),
                 )
             )
+        if not rubric:
+            raise ValueError("Could not ground any rubric point in the source; cannot judge.")
+        return rubric
 
+    def evaluate(self, *, concept: Concept, user_explanation: str) -> GapReport:
+        rubric = concept.rubric
+        if not rubric:
+            raise ValueError("Concept has no rubric; call build_rubric at setup before judging.")
+
+        numbered = "\n".join(f"[{i}] {rp.criterion}" for i, rp in enumerate(rubric))
+        user_msg = (
+            f"Concept: {concept.label}\n\n"
+            f"Key points a correct explanation must cover:\n{numbered}\n\n"
+            f"Learner's explanation:\n{user_explanation}"
+        )
+
+        draft: _ScoreDraft = self._client.messages.parse(
+            model=self._model,
+            max_tokens=16000,
+            thinking={"type": "adaptive"},
+            system=_SCORE_SYSTEM,
+            messages=[{"role": "user", "content": user_msg}],
+            output_format=_ScoreDraft,
+        ).parsed_output
+
+        status_by_index = {s.index: s for s in draft.scores}
+        correct_points: list[str] = []
+        gaps: list[Gap] = []
+        total = 0.0
+        for i, rp in enumerate(rubric):
+            s = status_by_index.get(i)
+            value = _STATUS_VALUE.get(s.status, 0.0) if s else 0.0
+            total += value
+            if value >= 1.0:
+                correct_points.append(rp.criterion)
+            else:
+                # WHY: the gap is a probe (a question), never the missing fact verbatim, so copying
+                # feedback back doesn't satisfy the criterion. Citation kept for audit, not displayed.
+                probe = s.probe if (s and s.probe) else f"Can you address: {rp.criterion}?"
+                gaps.append(Gap(description=probe, citation=rp.citation))
+
+        # WHY: understanding is computed in code from per-point statuses, not a holistic guess by
+        # the model, so it is accurate and moves predictably as the learner covers more points.
+        understanding_level = total / len(rubric)
         return GapReport(
             concept_id=concept.id,
             user_explanation=user_explanation,
-            understanding_level=verdict.understanding_level,
-            correct_points=verdict.correct_points,
+            understanding_level=understanding_level,
+            correct_points=correct_points,
             gaps=gaps,
         )

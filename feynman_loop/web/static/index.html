@@ -264,7 +264,7 @@ function renderReview(r) {
   document.getElementById("correct").innerHTML = r.correct_points.length
     ? `<div class="block-title">What you got right</div><ul>${r.correct_points.map(p => `<li class="right">&#10003; ${escapeHtml(p)}</li>`).join("")}</ul>` : "";
   document.getElementById("gaps").innerHTML = r.gaps.length
-    ? `<div class="block-title">Gaps (grounded in your source)</div><ul>${r.gaps.map(g => `<li class="gap">&bull; ${escapeHtml(g.description)}${quoteBlock(g.doc_label, g.quote)}</li>`).join("")}</ul>`
+    ? `<div class="block-title">Gaps to close (questions, grounded in your source)</div><ul>${r.gaps.map(g => `<li class="gap">&bull; ${escapeHtml(g.description)}<div class="quote"><span class="src">revisit: ${escapeHtml(g.doc_label)}</span></div></li>`).join("")}</ul>`
     : `<div class="block-title">No gaps found against your source.</div>`;
   document.getElementById("due").textContent = `Next review due ${r.next_due} (review #${r.review_count})`;
   show("result");

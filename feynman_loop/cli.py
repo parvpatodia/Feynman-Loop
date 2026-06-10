@@ -17,6 +17,7 @@ from uuid import uuid4
 from feynman_loop.judge.claude_judge import ClaudeJudge
 from feynman_loop.loop import (
     TRANSFER_GATE,
+    build_concept_rubric,
     generate_transfer_probe,
     run_review,
     score_transfer,
@@ -82,6 +83,10 @@ def main(argv: list[str]) -> int:
         ),
     )
 
+    judge = ClaudeJudge()
+    # build the concept's fixed scoring rubric once from the source
+    build_concept_rubric(concept=concept, retriever=retriever, judge=judge)
+
     print(f"\nExplain '{concept_label}' in your own words. End with an empty line.\n")
     explanation = _read_block()
 
@@ -92,8 +97,7 @@ def main(argv: list[str]) -> int:
         concept=concept,
         user_id=user_id,
         explanation=explanation,
-        retriever=retriever,
-        judge=ClaudeJudge(),
+        judge=judge,
         store=store,
     )
 

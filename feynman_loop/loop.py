@@ -24,30 +24,36 @@ TRANSFER_GATE = 0.6
 REMEDIATION_GATE = 0.6
 
 
+def build_concept_rubric(
+    *,
+    concept: Concept,
+    retriever: Retriever,
+    judge: Judge,
+    k: int = 4,
+) -> None:
+    """Build the concept's fixed scoring rubric from the source, ONCE at setup, and store it on
+    the concept. Every review then scores against the same key points (consistent, responsive)."""
+    passages = retriever.retrieve(query=concept.source_ref.retrieval_query, k=k)
+    concept.rubric = judge.build_rubric(concept=concept, passages=passages)
+
+
 def run_review(
     *,
     concept: Concept,
     user_id: UUID,
     explanation: str,
-    retriever: Retriever,
     judge: Judge,
     store: JsonUserStateStore | None = None,
     now: datetime | None = None,
-    k: int = 4,
 ) -> tuple[GapReport, UserState]:
     now = now or datetime.now(timezone.utc)
 
-    # 1. RETRIEVE. The query is the concept's stored retrieval_query (Decision 13), not the
-    #    user's words — we want the canonical passage for this concept.
-    passages = retriever.retrieve(query=concept.source_ref.retrieval_query, k=k)
+    # JUDGE. Score the explanation against the concept's fixed rubric (built once at setup). The
+    # understanding score is computed from per-point statuses, so it is accurate and responsive.
+    report = judge.evaluate(concept=concept, user_explanation=explanation)
 
-    # 2. JUDGE. Compares the explanation ONLY against those passages. Raises if there are none
-    #    (Decision 15: never judge an ungrounded concept).
-    report = judge.evaluate(concept=concept, user_explanation=explanation, passages=passages)
-
-    # 3. UPDATE USER-STATE. This is where next_due_at is written — at the END of the review,
-    #    by the interval logic. The scheduler never writes it; it only reads it later to say
-    #    "this is due". That is what makes "due" a suggestion, not something imposed (Decision 10).
+    # UPDATE USER-STATE. next_due_at is written HERE, at the END of the review, by the interval
+    # logic. The scheduler only reads it later (Decision 10: "due" is a suggestion, not imposed).
     prior = store.get(user_id=user_id, concept_id=concept.id) if store else None
     state = UserState(
         concept_id=concept.id,
