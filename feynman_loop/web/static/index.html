@@ -6,118 +6,182 @@
 <title>Feynman-Loop</title>
 <style>
   :root {
-    --bg: #0f1115;
-    --panel: #171a21;
-    --panel-2: #1e222b;
+    --bg: #0d0f13;
+    --panel: #161922;
+    --panel-2: #1c2029;
     --border: #2a2f3a;
-    --text: #e6e8ec;
+    --border-soft: #222632;
+    --text: #e8eaee;
     --muted: #9aa1ad;
+    --faint: #6b7280;
     --accent: #4db6a4;
-    --good: #5fb37a;
+    --accent-ink: #07120f;
+    --good: #62b97c;
     --gap: #d8924a;
-    --radius: 12px;
+    --danger: #d86a6a;
+    --radius: 14px;
+    --maxw: 1180px;
   }
   * { box-sizing: border-box; }
+  html, body { margin: 0; }
   body {
-    margin: 0; background: var(--bg); color: var(--text);
-    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--text);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
   }
-  .wrap { max-width: 760px; margin: 0 auto; padding: 40px 20px 80px; }
-  header h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.01em; }
-  header p { color: var(--muted); margin: 0 0 28px; }
-  .card {
-    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
-    padding: 20px 22px; margin-bottom: 18px;
+
+  header.bar {
+    border-bottom: 1px solid var(--border-soft);
+    padding: 20px 28px;
+    position: sticky; top: 0; z-index: 5;
+    background: rgba(13,15,19,0.85); backdrop-filter: blur(8px);
   }
-  .card h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 14px; }
-  label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 5px; }
-  input, textarea {
+  header.bar .inner { max-width: var(--maxw); margin: 0 auto; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+  header.bar h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
+  header.bar p { margin: 0; color: var(--muted); font-size: 14px; }
+
+  main {
+    max-width: var(--maxw); margin: 0 auto; padding: 28px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 22px; align-items: start;
+  }
+  .col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+  .col-feedback { position: sticky; top: 84px; }
+  @media (max-width: 920px) {
+    main { grid-template-columns: 1fr; }
+    .col-feedback { position: static; }
+  }
+
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px 24px; }
+  .card.muted { background: transparent; border-style: dashed; color: var(--faint); text-align: center; padding: 40px 24px; }
+  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 16px; font-weight: 600; }
+  .step { color: var(--accent); margin-right: 8px; }
+
+  label { display: block; font-size: 13px; color: var(--muted); margin: 14px 0 6px; }
+  label:first-of-type { margin-top: 0; }
+  input[type="text"], input:not([type]), textarea {
     width: 100%; background: var(--panel-2); color: var(--text);
-    border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font: inherit; resize: vertical;
+    border: 1px solid var(--border); border-radius: 9px; padding: 11px 13px; font: inherit; resize: vertical;
   }
-  textarea { min-height: 110px; }
-  input:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  textarea { min-height: 120px; line-height: 1.6; }
+  input:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(77,182,164,0.15); }
+  input[type="file"] { padding: 9px 12px; color: var(--muted); }
+
+  .row { display: flex; align-items: center; gap: 12px; margin-top: 16px; flex-wrap: wrap; }
   button {
-    margin-top: 14px; background: var(--accent); color: #08110f; border: 0; border-radius: 8px;
-    padding: 10px 18px; font: inherit; font-weight: 600; cursor: pointer;
+    background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 9px;
+    padding: 11px 20px; font: inherit; font-weight: 600; cursor: pointer; transition: opacity .15s, transform .05s;
   }
-  button:disabled { opacity: 0.5; cursor: default; }
+  button:hover { opacity: 0.92; }
+  button:active { transform: translateY(1px); }
+  button:disabled { opacity: 0.45; cursor: default; }
+  .hint { color: var(--faint); font-size: 13px; }
+
   .hidden { display: none; }
-  .score { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
-  .score small { font-size: 13px; font-weight: 400; color: var(--muted); }
-  ul { margin: 8px 0 0; padding-left: 0; list-style: none; }
-  li { margin: 0 0 12px; }
+  .score { font-size: 40px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
+  .score small { font-size: 14px; font-weight: 400; color: var(--muted); letter-spacing: 0; }
+  .block-title { color: var(--muted); font-size: 13px; margin: 18px 0 8px; }
+  ul { margin: 0; padding-left: 0; list-style: none; }
+  li { margin: 0 0 14px; }
   .right { color: var(--good); }
   .gap { color: var(--gap); }
   .quote {
-    margin: 6px 0 0; padding: 8px 12px; border-left: 3px solid var(--border);
-    background: var(--panel-2); border-radius: 0 6px 6px 0; color: var(--muted); font-size: 14px;
+    margin: 7px 0 0; padding: 9px 13px; border-left: 3px solid var(--border);
+    background: var(--panel-2); border-radius: 0 7px 7px 0; color: var(--muted); font-size: 14px; line-height: 1.55;
   }
-  .quote .src { display: block; font-size: 12px; color: var(--accent); margin-bottom: 3px; }
-  .meta { color: var(--muted); font-size: 13px; margin-top: 14px; }
-  .loading { color: var(--accent); font-size: 14px; margin-top: 10px; }
-  .err { color: #d86a6a; font-size: 14px; margin-top: 10px; }
+  .quote .src { display: block; font-size: 12px; color: var(--accent); margin-bottom: 4px; font-weight: 600; }
+  .meta { color: var(--muted); font-size: 13px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border-soft); }
+  .loading { color: var(--accent); font-size: 14px; margin-top: 12px; }
+  .err { color: var(--danger); font-size: 14px; margin-top: 12px; }
+  hr.sep { border: 0; border-top: 1px solid var(--border-soft); margin: 18px 0; }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header>
+<header class="bar">
+  <div class="inner">
     <h1>Feynman-Loop</h1>
     <p>Explain a concept in your own words. It finds the gap against your own source, then makes you apply it.</p>
-  </header>
+  </div>
+</header>
 
-  <!-- Step 1: source -->
-  <section class="card" id="setup">
-    <h2>1 &middot; Your material</h2>
-    <label for="source">Source text (paste your notes or a passage)</label>
-    <textarea id="source" placeholder="Paste the trusted source for this concept..."></textarea>
-    <label for="file">...or upload a PDF / text file</label>
-    <input id="file" type="file" accept=".pdf,.txt" />
-    <label for="concept">Concept you want to test yourself on</label>
-    <input id="concept" placeholder="Backpropagation" />
-    <button id="startBtn" onclick="startSession()">Start</button>
-    <div class="loading hidden" id="setupLoading">Indexing your source...</div>
-    <div class="err hidden" id="setupErr"></div>
-  </section>
+<main>
+  <!-- LEFT: the work -->
+  <div class="col">
+    <section class="card" id="setup">
+      <h2><span class="step">1</span>Your material</h2>
+      <label for="source">Source text (paste your notes or a passage)</label>
+      <textarea id="source" placeholder="Paste the trusted source for this concept..."></textarea>
+      <label for="file">...or upload a PDF / text file</label>
+      <input id="file" type="file" accept=".pdf,.txt" />
+      <label for="concept">Concept you want to test yourself on</label>
+      <input id="concept" type="text" placeholder="Backpropagation" />
+      <div class="row">
+        <button id="startBtn" onclick="startSession()">Start</button>
+        <span class="loading hidden" id="setupLoading">Indexing your source...</span>
+      </div>
+      <div class="err hidden" id="setupErr"></div>
+    </section>
 
-  <!-- Step 2: explain -->
-  <section class="card hidden" id="explain">
-    <h2>2 &middot; Explain it back</h2>
-    <label id="explainLabel">Explain the concept in your own words</label>
-    <textarea id="explanation" placeholder="In your own words, no peeking..."></textarea>
-    <button id="explainBtn" onclick="submitExplanation()">Submit explanation</button>
-    <div class="loading hidden" id="explainLoading">Judging against your source...</div>
-    <div class="err hidden" id="explainErr"></div>
-  </section>
+    <section class="card hidden" id="explain">
+      <h2><span class="step">2</span>Explain it back</h2>
+      <label id="explainLabel" for="explanation">Explain the concept in your own words</label>
+      <textarea id="explanation" placeholder="In your own words, no peeking..."></textarea>
+      <div class="row">
+        <button id="explainBtn" onclick="submitExplanation()">Submit explanation</button>
+        <span class="hint">Edit and submit again any time to re-attempt.</span>
+        <span class="loading hidden" id="explainLoading">Judging against your source...</span>
+      </div>
+      <div class="err hidden" id="explainErr"></div>
+    </section>
 
-  <!-- Review result -->
-  <section class="card hidden" id="result">
-    <h2>What it found</h2>
-    <div class="score" id="understanding"></div>
-    <div id="correct"></div>
-    <div id="gaps"></div>
-    <div class="meta" id="due"></div>
-  </section>
+    <section class="card hidden" id="transfer">
+      <h2><span class="step">3</span>Transfer challenge</h2>
+      <p id="transferQuestion"></p>
+      <label for="answer">Your answer</label>
+      <textarea id="answer" placeholder="Apply the concept to the case above..."></textarea>
+      <div class="row">
+        <button id="transferBtn" onclick="submitTransfer()">Submit answer</button>
+        <span class="hint">Edit and submit again to re-attempt.</span>
+        <span class="loading hidden" id="transferLoading">Scoring against the rubric...</span>
+      </div>
+      <div class="err hidden" id="transferErr"></div>
+    </section>
 
-  <!-- Step 3: transfer -->
-  <section class="card hidden" id="transfer">
-    <h2>3 &middot; Transfer challenge</h2>
-    <p id="transferQuestion"></p>
-    <label for="answer">Your answer</label>
-    <textarea id="answer" placeholder="Apply the concept to the case above..."></textarea>
-    <button id="transferBtn" onclick="submitTransfer()">Submit answer</button>
-    <div class="loading hidden" id="transferLoading">Scoring against the rubric...</div>
-    <div class="err hidden" id="transferErr"></div>
-  </section>
+    <section class="card hidden" id="remediation">
+      <h2><span class="step">&#8635;</span>Narrower retry</h2>
+      <p class="hint">You missed some of it. Here is a smaller version targeting the exact gap.</p>
+      <p id="remediationQuestion"></p>
+      <label for="remediationAnswer">Your answer</label>
+      <textarea id="remediationAnswer" placeholder="Try the narrower case..."></textarea>
+      <div class="row">
+        <button id="remediationBtn" onclick="submitRemediation()">Submit retry</button>
+        <span class="loading hidden" id="remediationLoading">Scoring...</span>
+      </div>
+      <div class="err hidden" id="remediationErr"></div>
+    </section>
+  </div>
 
-  <!-- Transfer result -->
-  <section class="card hidden" id="transferResult">
-    <h2>Transfer result</h2>
-    <div class="score" id="transferScore"></div>
-    <div id="transferMet"></div>
-    <div id="transferMissed"></div>
-  </section>
-</div>
+  <!-- RIGHT: the feedback -->
+  <div class="col col-feedback">
+    <section class="card muted" id="feedbackPlaceholder">
+      Your feedback appears here once you explain the concept.
+    </section>
+
+    <section class="card hidden" id="result">
+      <h2>What it found</h2>
+      <div class="score" id="understanding"></div>
+      <div id="correct"></div>
+      <div id="gaps"></div>
+      <div class="meta" id="due"></div>
+    </section>
+
+    <section class="card hidden" id="transferResult">
+      <h2>Transfer result</h2>
+      <div class="score" id="transferScore"></div>
+      <div id="transferMet"></div>
+      <div id="transferMissed"></div>
+    </section>
+  </div>
+</main>
 
 <script>
 let sessionId = null;
@@ -126,24 +190,15 @@ function show(id) { document.getElementById(id).classList.remove("hidden"); }
 function hide(id) { document.getElementById(id).classList.add("hidden"); }
 function setErr(id, msg) { const e = document.getElementById(id); e.textContent = msg; e.classList.remove("hidden"); }
 function clearErr(id) { hide(id); }
-
-async function post(path, body) {
-  const res = await fetch(path, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    let detail = res.statusText;
-    try { detail = (await res.json()).detail || detail; } catch (e) {}
-    throw new Error(detail);
-  }
-  return res.json();
-}
-
+function escapeHtml(s) { return s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 function quoteBlock(docLabel, quote) {
   return `<div class="quote"><span class="src">${escapeHtml(docLabel)}</span>"${escapeHtml(quote)}"</div>`;
 }
-function escapeHtml(s) {
-  return s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+async function post(path, body) {
+  const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!res.ok) { let d = res.statusText; try { d = (await res.json()).detail || d; } catch (e) {} throw new Error(d); }
+  return res.json();
 }
 
 async function startSession() {
@@ -162,11 +217,7 @@ async function startSession() {
       fd.append("concept_label", concept);
       fd.append("file", file);
       const res = await fetch("/api/session/upload", { method: "POST", body: fd });
-      if (!res.ok) {
-        let detail = res.statusText;
-        try { detail = (await res.json()).detail || detail; } catch (e) {}
-        throw new Error(detail);
-      }
+      if (!res.ok) { let d = res.statusText; try { d = (await res.json()).detail || d; } catch (e) {} throw new Error(d); }
       data = await res.json();
     } else {
       data = await post("/api/session", { source_text: source, concept_label: concept });
@@ -183,6 +234,12 @@ async function startSession() {
   }
 }
 
+function resetFeedback() {
+  // a fresh explanation clears stale feedback and any open transfer/retry
+  hide("transfer"); hide("transferResult"); hide("remediation");
+  document.getElementById("answer").value = "";
+}
+
 async function submitExplanation() {
   clearErr("explainErr");
   const explanation = document.getElementById("explanation").value.trim();
@@ -190,6 +247,7 @@ async function submitExplanation() {
   document.getElementById("explainBtn").disabled = true;
   show("explainLoading");
   try {
+    resetFeedback();
     const r = await post("/api/review", { session_id: sessionId, explanation });
     renderReview(r);
   } catch (e) {
@@ -201,22 +259,20 @@ async function submitExplanation() {
 }
 
 function renderReview(r) {
-  document.getElementById("understanding").innerHTML =
-    `${Math.round(r.understanding_level * 100)}% <small>understanding</small>`;
+  hide("feedbackPlaceholder");
+  document.getElementById("understanding").innerHTML = `${Math.round(r.understanding_level * 100)}% <small>understanding</small>`;
   document.getElementById("correct").innerHTML = r.correct_points.length
-    ? `<p>What you got right:</p><ul>${r.correct_points.map(p => `<li class="right">✓ ${escapeHtml(p)}</li>`).join("")}</ul>`
-    : "";
+    ? `<div class="block-title">What you got right</div><ul>${r.correct_points.map(p => `<li class="right">&#10003; ${escapeHtml(p)}</li>`).join("")}</ul>` : "";
   document.getElementById("gaps").innerHTML = r.gaps.length
-    ? `<p>Gaps (grounded in your source):</p><ul>${r.gaps.map(g =>
-        `<li class="gap">• ${escapeHtml(g.description)}${quoteBlock(g.doc_label, g.quote)}</li>`).join("")}</ul>`
-    : `<p>No gaps found against your source.</p>`;
+    ? `<div class="block-title">Gaps (grounded in your source)</div><ul>${r.gaps.map(g => `<li class="gap">&bull; ${escapeHtml(g.description)}${quoteBlock(g.doc_label, g.quote)}</li>`).join("")}</ul>`
+    : `<div class="block-title">No gaps found against your source.</div>`;
   document.getElementById("due").textContent = `Next review due ${r.next_due} (review #${r.review_count})`;
   show("result");
 
   if (r.transfer_question) {
     document.getElementById("transferQuestion").textContent = r.transfer_question;
+    document.getElementById("answer").value = "";
     show("transfer");
-    document.getElementById("answer").focus();
   }
 }
 
@@ -237,22 +293,37 @@ async function submitTransfer() {
   }
 }
 
+async function submitRemediation() {
+  clearErr("remediationErr");
+  const answer = document.getElementById("remediationAnswer").value.trim();
+  if (!answer) { setErr("remediationErr", "Write your answer first."); return; }
+  document.getElementById("remediationBtn").disabled = true;
+  show("remediationLoading");
+  try {
+    const r = await post("/api/transfer", { session_id: sessionId, answer });
+    renderTransfer(r);
+    hide("remediation");  // bounded: one retry only
+  } catch (e) {
+    setErr("remediationErr", e.message);
+  } finally {
+    document.getElementById("remediationBtn").disabled = false;
+    hide("remediationLoading");
+  }
+}
+
 function renderTransfer(r) {
-  document.getElementById("transferScore").innerHTML =
-    `${Math.round(r.transfer_score * 100)}% <small>applied correctly</small>`;
+  document.getElementById("transferScore").innerHTML = `${Math.round(r.transfer_score * 100)}% <small>applied correctly</small>`;
   document.getElementById("transferMet").innerHTML = r.met.length
-    ? `<ul>${r.met.map(m => `<li class="right">✓ ${escapeHtml(m)}</li>`).join("")}</ul>` : "";
+    ? `<div class="block-title">You applied correctly</div><ul>${r.met.map(m => `<li class="right">&#10003; ${escapeHtml(m)}</li>`).join("")}</ul>` : "";
   document.getElementById("transferMissed").innerHTML = r.missed.length
-    ? `<p>Missed:</p><ul>${r.missed.map(m =>
-        `<li class="gap">• ${escapeHtml(m.criterion)}${quoteBlock(m.doc_label, m.quote)}</li>`).join("")}</ul>` : "";
+    ? `<div class="block-title">Missed</div><ul>${r.missed.map(m => `<li class="gap">&bull; ${escapeHtml(m.criterion)}${quoteBlock(m.doc_label, m.quote)}</li>`).join("")}</ul>` : "";
   show("transferResult");
 
   if (r.remediation_question) {
-    // one narrower retry, targeted at what was missed
-    document.getElementById("transferQuestion").textContent = "Narrower retry: " + r.remediation_question;
-    document.getElementById("answer").value = "";
-    show("transfer");
-    document.getElementById("answer").focus();
+    hide("transfer");  // avoid scoring the original answer against the new (remediation) rubric
+    document.getElementById("remediationQuestion").textContent = r.remediation_question;
+    document.getElementById("remediationAnswer").value = "";
+    show("remediation");
   }
 }
 </script>

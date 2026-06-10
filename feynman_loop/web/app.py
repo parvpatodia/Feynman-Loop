@@ -192,6 +192,7 @@ def review(req: ReviewRequest) -> ReviewResponse:
         s.probe = generate_transfer_probe(
             concept=s.concept, retriever=s.retriever, engine=_make_transfer()
         )
+        s.remediation_done = False  # WHY: a fresh review re-opens the one-shot remediation
         transfer_question = _clean(s.probe.question)
 
     return ReviewResponse(
