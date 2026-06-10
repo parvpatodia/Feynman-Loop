@@ -140,6 +140,19 @@ All four planning decisions are now settled:
 
 **ALL 7 demo pieces built.** The explain-it-back loop is end-to-end runnable from the CLI.
 
+**Transfer measurement (Decision 12) built.** Realizes the "apply, don't restate" half of measurement.
+- `models/transfer.py`: `RubricPoint` (criterion + grounded Citation), `TransferProbe` (question
+  + rubric), `TransferResult` (transfer_score + met/missed).
+- `transfer/claude_transfer.py` (`ClaudeTransfer`): generates a novel application question + a
+  rubric where every point is grounded in a passage by INDEX (same anti-hallucination trick as
+  the judge); refuses to ask if nothing grounds. Scores the answer against the fixed rubric →
+  fraction met. Both calls: opus-4-8, messages.parse, adaptive thinking.
+- `user_state.transfer_level` (separate from understanding_level; restate vs apply).
+- `loop.generate_transfer_probe` + `loop.score_transfer`; `TRANSFER_GATE = 0.6` (transfer only
+  fires after a solid explanation). CLI wires it after explain-it-back.
+- 22 tests green. NOTE: the live generate+score Claude path is not yet run end-to-end (needs a
+  live key); offline tests cover wiring, grounding, and scoring math. Verify with a real CLI run.
+
 **Remaining to actually demo:**
 - Run it LIVE: `export ANTHROPIC_API_KEY=...`, then
   `python -m feynman_loop.cli <source.txt> "<Concept>" "<retrieval query>"`. First run downloads

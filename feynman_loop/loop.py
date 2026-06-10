@@ -10,10 +10,15 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from feynman_loop.judge.base import Judge
-from feynman_loop.models import Concept, GapReport, UserState
+from feynman_loop.models import Concept, GapReport, TransferProbe, TransferResult, UserState
 from feynman_loop.retrieval.base import Retriever
 from feynman_loop.scheduling import compute_next_due
 from feynman_loop.storage import JsonUserStateStore
+from feynman_loop.transfer.base import TransferEngine
+
+# WHY: don't probe application until the baseline explanation is solid; testing transfer on
+# someone who can't even restate the concept measures nothing (Decision 12).
+TRANSFER_GATE = 0.6
 
 
 def run_review(
@@ -56,3 +61,35 @@ def run_review(
         store.put(state)
 
     return report, state
+
+
+def generate_transfer_probe(
+    *,
+    concept: Concept,
+    retriever: Retriever,
+    engine: TransferEngine,
+    k: int = 4,
+) -> TransferProbe:
+    """Retrieve the grounding passages, then generate a grounded transfer challenge."""
+    passages = retriever.retrieve(query=concept.source_ref.retrieval_query, k=k)
+    return engine.generate_probe(concept=concept, passages=passages)
+
+
+def score_transfer(
+    *,
+    probe: TransferProbe,
+    user_id: UUID,
+    user_answer: str,
+    engine: TransferEngine,
+    store: JsonUserStateStore | None = None,
+) -> TransferResult:
+    """Score the answer against the grounded rubric and record transfer_level on user-state."""
+    result = engine.score_answer(probe=probe, user_answer=user_answer)
+    if store is not None:
+        state = store.get(user_id=user_id, concept_id=probe.concept_id)
+        if state is not None:
+            # WHY: transfer_level is its own signal, written here after a transfer probe; it does
+            # not overwrite understanding_level (restating and applying are different things).
+            state.transfer_level = result.transfer_score
+            store.put(state)
+    return result

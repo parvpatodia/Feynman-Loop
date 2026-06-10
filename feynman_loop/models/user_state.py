@@ -26,6 +26,11 @@ class UserState(BaseModel):
     # review. It is also the input that modulates the spacing interval below (the "hybrid" part).
     understanding_level: float = 0.0
 
+    # WHY: a SEPARATE signal from understanding_level (Decision 12). understanding_level measures
+    # "can you restate it"; transfer_level measures "can you APPLY it to a case you weren't shown".
+    # None until a transfer probe has been scored.
+    transfer_level: float | None = None
+
     # --- resurfacing (hybrid due policy, Decision 10) ---
     last_reviewed_at: datetime | None = None
 

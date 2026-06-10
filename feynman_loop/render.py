@@ -6,7 +6,7 @@ Never a bare "you're wrong" — every gap carries its citation.
 
 from __future__ import annotations
 
-from feynman_loop.models import GapReport
+from feynman_loop.models import GapReport, TransferProbe, TransferResult
 
 
 def _clean(text: str) -> str:
@@ -30,5 +30,28 @@ def render_gap_report(report: GapReport) -> str:
             lines.append(f'      "{_clean(g.citation.quote)}"')
     else:
         lines.append("\nNo gaps found against your source.")
+
+    return "\n".join(lines)
+
+
+def render_transfer_probe(probe: TransferProbe) -> str:
+    # WHY: show ONLY the question. Never show the rubric before the user answers, that would
+    # hand them the answer and defeat the point.
+    return f"Transfer challenge:\n\n{_clean(probe.question)}"
+
+
+def render_transfer_result(result: TransferResult) -> str:
+    lines: list[str] = [f"Transfer: {result.transfer_score:.0%}"]
+
+    if result.met:
+        lines.append("\nYou applied correctly:")
+        lines.extend(f"  + {_clean(c)}" for c in result.met)
+
+    if result.missed:
+        lines.append("\nMissed (each grounded in your source):")
+        for rp in result.missed:
+            lines.append(f"  - {_clean(rp.criterion)}")
+            lines.append(f"      source: {rp.citation.doc_label}")
+            lines.append(f'      "{_clean(rp.citation.quote)}"')
 
     return "\n".join(lines)
