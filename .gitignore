@@ -20,6 +20,7 @@ feynman_state.json
 feynman_concepts.json
 feynman_learner.json
 feynman_user.json
+feynman_pending.json
 
 # OS
 .DS_Store
