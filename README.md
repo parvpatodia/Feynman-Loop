@@ -38,7 +38,7 @@ Point it at a plain-text source and name a concept (the retrieval query is deriv
 .venv/bin/python -m feynman_loop.cli path/to/source.txt "Backpropagation"
 ```
 
-You type your explanation, then an empty line to submit. It returns the grounded gaps and, if your explanation is solid, a transfer challenge. Plain-text sources only for now (no PDF parsing yet).
+You type your explanation, then an empty line to submit. It returns the grounded gaps and, if your explanation is solid, a transfer challenge. Sources can be `.txt` or `.pdf` (text-based PDFs; scanned/image-only PDFs are not OCR'd).
 
 ## Run the web UI
 
@@ -47,4 +47,4 @@ export ANTHROPIC_API_KEY=...
 .venv/bin/python -m uvicorn feynman_loop.web.app:app --port 8000
 ```
 
-Open http://localhost:8000, paste your source, name the concept, and explain it. The grounded gaps and the transfer challenge render in the browser.
+Open http://localhost:8000, paste your source **or upload a .pdf/.txt file**, name the concept, and explain it. The grounded gaps and the transfer challenge render in the browser.

@@ -71,6 +71,8 @@
     <h2>1 &middot; Your material</h2>
     <label for="source">Source text (paste your notes or a passage)</label>
     <textarea id="source" placeholder="Paste the trusted source for this concept..."></textarea>
+    <label for="file">...or upload a PDF / text file</label>
+    <input id="file" type="file" accept=".pdf,.txt" />
     <label for="concept">Concept you want to test yourself on</label>
     <input id="concept" placeholder="Backpropagation" />
     <button id="startBtn" onclick="startSession()">Start</button>
@@ -148,11 +150,27 @@ async function startSession() {
   clearErr("setupErr");
   const source = document.getElementById("source").value.trim();
   const concept = document.getElementById("concept").value.trim();
-  if (!source || !concept) { setErr("setupErr", "Add your source and the concept."); return; }
+  const file = document.getElementById("file").files[0];
+  if (!concept) { setErr("setupErr", "Name the concept."); return; }
+  if (!source && !file) { setErr("setupErr", "Paste a source or upload a file."); return; }
   document.getElementById("startBtn").disabled = true;
   show("setupLoading");
   try {
-    const data = await post("/api/session", { source_text: source, concept_label: concept });
+    let data;
+    if (file) {
+      const fd = new FormData();
+      fd.append("concept_label", concept);
+      fd.append("file", file);
+      const res = await fetch("/api/session/upload", { method: "POST", body: fd });
+      if (!res.ok) {
+        let detail = res.statusText;
+        try { detail = (await res.json()).detail || detail; } catch (e) {}
+        throw new Error(detail);
+      }
+      data = await res.json();
+    } else {
+      data = await post("/api/session", { source_text: source, concept_label: concept });
+    }
     sessionId = data.session_id;
     document.getElementById("explainLabel").textContent = `Explain "${data.concept_label}" in your own words`;
     show("explain");

@@ -4,6 +4,8 @@ sentence-transformers>=2.2
 anthropic>=0.39
 fastapi>=0.110
 uvicorn>=0.27
+python-multipart>=0.0.9
+pypdf>=4.0
 
 # dev
 pytest>=7.0

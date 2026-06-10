@@ -130,3 +130,10 @@ def test_low_transfer_offers_one_bounded_remediation(monkeypatch, tmp_path):
 
     r2 = c.post("/api/transfer", json={"session_id": sid, "answer": "again"}).json()
     assert r2["remediation_question"] is None  # bounded: no second remediation
+
+
+def test_session_upload_txt_file(client):
+    files = {"file": ("notes.txt", b"chain rule. a separate optimizer updates weights.", "text/plain")}
+    r = client.post("/api/session/upload", data={"concept_label": "Backprop"}, files=files)
+    assert r.status_code == 200
+    assert r.json()["concept_label"] == "Backprop"

@@ -13,7 +13,7 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -29,6 +29,7 @@ from feynman_loop.loop import (
 from feynman_loop.models import Concept, SourceRef, SourceTier, TransferProbe
 from feynman_loop.retrieval.chroma_store import ChromaRetriever, sentence_transformer_embedder
 from feynman_loop.retrieval.query_expansion import ClaudeQueryExpander
+from feynman_loop.sources import extract_text
 from feynman_loop.storage import JsonUserStateStore
 from feynman_loop.transfer.claude_transfer import ClaudeTransfer
 
@@ -136,16 +137,15 @@ def _session(sid: str) -> _Session:
     return s
 
 
-@app.post("/api/session", response_model=StartResponse)
-def start(req: StartRequest) -> StartResponse:
+def _start_session(*, source_text: str, concept_label: str) -> StartResponse:
     retriever = _make_retriever()
     doc_id = uuid.uuid4()
-    doc_label = f"{req.concept_label} source"
-    retriever.ingest(doc_id=doc_id, doc_label=doc_label, text=req.source_text)
+    doc_label = f"{concept_label} source"
+    retriever.ingest(doc_id=doc_id, doc_label=doc_label, text=source_text)
     # WHY: derive the retrieval query from the concept; the user doesn't write search strings.
-    retrieval_query = _make_expander().expand(concept_label=req.concept_label)
+    retrieval_query = _make_expander().expand(concept_label=concept_label)
     concept = Concept(
-        label=req.concept_label,
+        label=concept_label,
         source_ref=SourceRef(
             tier=SourceTier.UPLOADED,
             doc_id=doc_id,
@@ -156,6 +156,23 @@ def start(req: StartRequest) -> StartResponse:
     sid = uuid.uuid4().hex
     _SESSIONS[sid] = _Session(retriever, concept, uuid.uuid4(), _make_store())
     return StartResponse(session_id=sid, concept_label=concept.label)
+
+
+@app.post("/api/session", response_model=StartResponse)
+def start(req: StartRequest) -> StartResponse:
+    return _start_session(source_text=req.source_text, concept_label=req.concept_label)
+
+
+@app.post("/api/session/upload", response_model=StartResponse)
+async def start_upload(
+    concept_label: str = Form(...), file: UploadFile = File(...)
+) -> StartResponse:
+    data = await file.read()
+    try:
+        text = extract_text(filename=file.filename or "upload", data=data)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return _start_session(source_text=text, concept_label=concept_label)
 
 
 @app.post("/api/review", response_model=ReviewResponse)

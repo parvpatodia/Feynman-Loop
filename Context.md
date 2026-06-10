@@ -160,6 +160,12 @@ All four planning decisions are now settled:
   missed principle, same index-grounding), bounded to a single attempt (`_Session.remediation_done`).
 - 31 tests green. Live generate/score/remediation Claude paths still need a real run to confirm.
 
+**PDF ingest (built 2026-06-09).** `feynman_loop/sources.py` `extract_text(filename, data)` dispatches
+.pdf (pypdf, text-based; raises a clear error on scanned/image-only PDFs, no OCR in v1) vs .txt.
+CLI `load_source(path)` handles both; web adds `POST /api/session/upload` (multipart) + a file input
+in the UI, reusing `_start_session`. Extracted text flows through the same chunk→embed→judge pipeline.
+Deps: pypdf, python-multipart. Real extraction verified with a generated PDF. 35 tests green.
+
 **Remaining to actually demo:**
 - Run it LIVE: `export ANTHROPIC_API_KEY=...`, then
   `python -m feynman_loop.cli <source.txt> "<Concept>" "<retrieval query>"`. First run downloads

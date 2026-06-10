@@ -2,9 +2,9 @@
 
 Usage:
     export ANTHROPIC_API_KEY=...
-    python -m feynman_loop.cli path/to/source.txt "Backpropagation"
+    python -m feynman_loop.cli path/to/source.(txt|pdf) "Backpropagation"
 
-It ingests the source, derives the retrieval query from the concept name, seeds one concept whose
+It ingests the source (.txt or .pdf), derives the retrieval query from the concept name, seeds one concept whose
 locator points at the source, asks you to explain the concept in your own words, then retrieves +
 judges + renders the grounded gap.
 """
@@ -29,6 +29,7 @@ from feynman_loop.render import (
 )
 from feynman_loop.retrieval.chroma_store import ChromaRetriever, sentence_transformer_embedder
 from feynman_loop.retrieval.query_expansion import ClaudeQueryExpander
+from feynman_loop.sources import load_source
 from feynman_loop.storage import JsonUserStateStore
 from feynman_loop.transfer.claude_transfer import ClaudeTransfer
 
@@ -58,7 +59,7 @@ def main(argv: list[str]) -> int:
         return 2
 
     source_path, concept_label = argv[1], argv[2]
-    text = open(source_path, encoding="utf-8").read()
+    text = load_source(source_path)  # .txt or .pdf
     doc_id = uuid4()
     doc_label = source_path
 
