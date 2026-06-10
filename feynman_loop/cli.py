@@ -31,6 +31,25 @@ from feynman_loop.storage import JsonUserStateStore
 from feynman_loop.transfer.claude_transfer import ClaudeTransfer
 
 
+def _read_block(stream=None) -> str:
+    """Read a multi-line block from stdin. Skip leading blank lines, then collect until a blank
+    line follows real content (or EOF). WHY: skipping leading blanks stops a buffered newline,
+    left over from submitting the previous block, from instantly submitting an empty answer."""
+    stream = stream or sys.stdin
+    lines: list[str] = []
+    while True:
+        raw = stream.readline()
+        if raw == "":            # EOF
+            break
+        line = raw.rstrip("\n")
+        if line == "":
+            if lines:            # blank line after content -> submit
+                break
+            continue             # leading blank -> ignore
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def main(argv: list[str]) -> int:
     if len(argv) < 4:
         print(__doc__)
@@ -57,7 +76,7 @@ def main(argv: list[str]) -> int:
     )
 
     print(f"\nExplain '{concept_label}' in your own words. End with an empty line.\n")
-    explanation = "\n".join(iter(lambda: sys.stdin.readline().rstrip("\n"), ""))
+    explanation = _read_block()
 
     user_id = uuid4()
     store = JsonUserStateStore("feynman_state.json")
@@ -80,7 +99,7 @@ def main(argv: list[str]) -> int:
         probe = generate_transfer_probe(concept=concept, retriever=retriever, engine=engine)
         print("\n" + render_transfer_probe(probe))
         print("\nYour answer. End with an empty line.\n")
-        answer = "\n".join(iter(lambda: sys.stdin.readline().rstrip("\n"), ""))
+        answer = _read_block()
         result = score_transfer(
             probe=probe, user_id=user_id, user_answer=answer, engine=engine, store=store
         )
