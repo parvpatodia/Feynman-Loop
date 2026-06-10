@@ -11,6 +11,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+# Shown as the "source" for tier-3 rubric points built from the model's own knowledge
+# (Decision 15 option b), flagged lower-confidence because there is no user source to ground in.
+MODEL_FALLBACK_LABEL = "general knowledge (unverified)"
+
 
 class Citation(BaseModel):
     """A pointer back into the user's OWN source. Transparency is the whole point."""

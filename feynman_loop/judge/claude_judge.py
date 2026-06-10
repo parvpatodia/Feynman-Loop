@@ -20,7 +20,7 @@ from anthropic import Anthropic
 from pydantic import BaseModel
 
 from feynman_loop.judge.base import Judge
-from feynman_loop.models import Citation, Concept, Gap, GapReport, RubricPoint
+from feynman_loop.models import MODEL_FALLBACK_LABEL, Citation, Concept, Gap, GapReport, RubricPoint
 from feynman_loop.retrieval.base import RetrievedPassage
 
 _MODEL = "claude-opus-4-8"
@@ -42,6 +42,11 @@ Do NOT credit near-verbatim copying of the source as understanding (that is "par
 For every point that is not "met", write a probe: a question that prompts the learner to retrieve
 the missing idea WITHOUT revealing the answer. Judge only against the listed points; be fair to a
 correct idea expressed in different words."""
+
+_RUBRIC_KNOWLEDGE_SYSTEM = """The learner gave NO source. List the key points a complete, correct
+explanation of the concept must contain, from YOUR OWN GENERAL KNOWLEDGE. 4-8 points, the
+essential mechanism, not trivia. For each point, put the criterion and a brief supporting fact in
+"quote"; set passage_index to 0 (unused here). Only include points you are confident are correct."""
 
 
 class _RubricItem(BaseModel):
@@ -76,7 +81,9 @@ class ClaudeJudge(Judge):
         self, *, concept: Concept, passages: list[RetrievedPassage]
     ) -> list[RubricPoint]:
         if not passages:
-            raise ValueError(f"No passages to build a rubric for {concept.label!r}.")
+            # WHY: tier-3 (Decision 15 option b, confirmed). No source -> build the rubric from the
+            # model's own knowledge, flagged lower-confidence. Transfer stays the ungameable check.
+            return self._build_rubric_from_knowledge(concept)
 
         numbered = "\n\n".join(f"[{i}] {p.text}" for i, p in enumerate(passages))
         user_msg = f"Concept: {concept.label}\n\nSource passages:\n{numbered}"
@@ -104,6 +111,26 @@ class ClaudeJudge(Judge):
             )
         if not rubric:
             raise ValueError("Could not ground any rubric point in the source; cannot judge.")
+        return rubric
+
+    def _build_rubric_from_knowledge(self, concept: Concept) -> list[RubricPoint]:
+        draft: _RubricDraft = self._client.messages.parse(
+            model=self._model,
+            max_tokens=16000,
+            thinking={"type": "adaptive"},
+            system=_RUBRIC_KNOWLEDGE_SYSTEM,
+            messages=[{"role": "user", "content": f"Concept: {concept.label}"}],
+            output_format=_RubricDraft,
+        ).parsed_output
+        rubric = [
+            RubricPoint(
+                criterion=it.criterion,
+                citation=Citation(doc_label=MODEL_FALLBACK_LABEL, doc_id=None, quote=it.quote),
+            )
+            for it in draft.points
+        ]
+        if not rubric:
+            raise ValueError(f"Could not build a knowledge rubric for {concept.label!r}.")
         return rubric
 
     def evaluate(self, *, concept: Concept, user_explanation: str) -> GapReport:

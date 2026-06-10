@@ -26,7 +26,8 @@ class _FakeRetriever:
 
 class _FakeJudge:
     def build_rubric(self, *, concept, passages):
-        return [RubricPoint(criterion="x", citation=Citation(doc_label=passages[0].doc_label, quote="q"))]
+        label = passages[0].doc_label if passages else "general knowledge (unverified)"
+        return [RubricPoint(criterion="x", citation=Citation(doc_label=label, quote="q"))]
 
     def evaluate(self, *, concept, user_explanation):
         return GapReport(
@@ -99,6 +100,7 @@ def test_full_flow_session_review_transfer(client):
     assert "weight update" in body["gaps"][0]["description"]  # gap is a probe, not the answer quote
     assert "quote" not in body["gaps"][0]  # answer text is not handed to the user
     assert body["transfer_available"] is True  # unlocked because >= gate
+    assert body["grounded"] is True            # a source was provided
     assert body["review_count"] == 1
 
     # 3. transfer question is generated on demand (deferred out of /api/review for latency)
@@ -116,6 +118,13 @@ def test_full_flow_session_review_transfer(client):
 def test_unknown_session_404(client):
     r = client.post("/api/review", json={"session_id": "nope", "explanation": "x"})
     assert r.status_code == 404
+
+
+def test_no_source_session_is_tier3(client):
+    # starting with only a concept (no source/file) -> tier-3, judged on model knowledge
+    sid = client.post("/api/session", json={"concept_label": "Backpropagation"}).json()["session_id"]
+    body = client.post("/api/review", json={"session_id": sid, "explanation": "it computes gradients"}).json()
+    assert body["grounded"] is False
 
 
 def test_low_transfer_offers_one_bounded_remediation(monkeypatch, tmp_path):

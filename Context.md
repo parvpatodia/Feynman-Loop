@@ -183,8 +183,16 @@ Chrome/Edge). #3 latency: deferred transfer-probe generation out of /api/review 
 reads) + run_review no longer retrieves. Remaining latency levers, opt-in with tradeoffs: prompt
 caching (small inputs → modest), model tiering to Sonnet (accuracy tradeoff, Parv's call),
 streaming the gap.
-**Still open:** #5 distribution (no-upload fallback + connectors/corpus vision) — Parv thinking
-about it. #4 UI polish (YC-grade pass)."
+#4 UI polish DONE (Linear/Vercel-style pass, progress bars, score animations).
+
+**#5 distribution (the MCP swing, confirmed):**
+- Tier-3 no-source fallback DONE: start with just a concept (no upload) and the rubric/transfer
+  are built from the model's own knowledge, flagged "general knowledge (unverified)" in the UI
+  (`grounded: false`). Unified code path: no source → retriever=None → empty passages → knowledge
+  mode in judge + transfer. `MODEL_FALLBACK_LABEL` in gap_report. 39 tests green.
+- NEXT: the MCP server — expose Feynman-Loop as MCP tools so it lives inside the AI workflow
+  (source = context you're already in; tier-3 covers no-context). Tool surface TBD with Parv.
+- Connectors + curated corpus: roadmap/pitch only, not built."
 
 **Remaining to actually demo:**
 - Run it LIVE: `export ANTHROPIC_API_KEY=...`, then

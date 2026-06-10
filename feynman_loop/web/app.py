@@ -27,7 +27,13 @@ from feynman_loop.loop import (
     run_review,
     score_transfer,
 )
-from feynman_loop.models import Concept, SourceRef, SourceTier, TransferProbe
+from feynman_loop.models import (
+    MODEL_FALLBACK_LABEL,
+    Concept,
+    SourceRef,
+    SourceTier,
+    TransferProbe,
+)
 from feynman_loop.retrieval.chroma_store import ChromaRetriever, sentence_transformer_embedder
 from feynman_loop.retrieval.query_expansion import ClaudeQueryExpander
 from feynman_loop.sources import extract_text
@@ -82,7 +88,7 @@ _SESSIONS: dict[str, _Session] = {}
 
 # --- request / response models ---
 class StartRequest(BaseModel):
-    source_text: str
+    source_text: str = ""  # optional; empty -> tier-3 (no source, judged on model knowledge)
     concept_label: str
 
 
@@ -108,6 +114,7 @@ class ReviewResponse(BaseModel):
     next_due: str
     review_count: int
     transfer_available: bool  # whether a transfer challenge is unlocked (generated on demand)
+    grounded: bool  # False when judged on model knowledge (tier-3), not the user's own source
 
 
 class GenerateTransferRequest(BaseModel):
@@ -147,23 +154,31 @@ def _session(sid: str) -> _Session:
 
 
 def _start_session(*, source_text: str, concept_label: str) -> StartResponse:
-    retriever = _make_retriever()
-    doc_id = uuid.uuid4()
-    doc_label = f"{concept_label} source"
-    retriever.ingest(doc_id=doc_id, doc_label=doc_label, text=source_text)
-    # WHY: derive the retrieval query from the concept; the user doesn't write search strings.
-    retrieval_query = _make_expander().expand(concept_label=concept_label)
-    concept = Concept(
-        label=concept_label,
-        source_ref=SourceRef(
+    if source_text and source_text.strip():
+        # grounded path: ingest the source, derive the retrieval query from the concept
+        retriever = _make_retriever()
+        doc_id = uuid.uuid4()
+        doc_label = f"{concept_label} source"
+        retriever.ingest(doc_id=doc_id, doc_label=doc_label, text=source_text)
+        source_ref = SourceRef(
             tier=SourceTier.UPLOADED,
             doc_id=doc_id,
             doc_label=doc_label,
-            retrieval_query=retrieval_query,
-        ),
-    )
-    # WHY: build the concept's fixed scoring rubric once, here at setup, so every review scores
-    # against the same key points (consistent, responsive understanding score).
+            retrieval_query=_make_expander().expand(concept_label=concept_label),
+        )
+    else:
+        # tier-3 (confirmed): no source -> the rubric is built from model knowledge, flagged.
+        # retriever=None flows through as empty passages -> knowledge mode in judge/transfer.
+        retriever = None
+        source_ref = SourceRef(
+            tier=SourceTier.MODEL_FALLBACK,
+            doc_id=None,
+            doc_label=MODEL_FALLBACK_LABEL,
+            retrieval_query=concept_label,
+        )
+
+    concept = Concept(label=concept_label, source_ref=source_ref)
+    # build the fixed scoring rubric once at setup (grounded if there's a source, else from knowledge)
     build_concept_rubric(concept=concept, retriever=retriever, judge=_make_judge())
     sid = uuid.uuid4().hex
     _SESSIONS[sid] = _Session(retriever, concept, uuid.uuid4(), _make_store())
@@ -214,6 +229,7 @@ def review(req: ReviewRequest) -> ReviewResponse:
         next_due=state.next_due_at.strftime("%Y-%m-%d") if state.next_due_at else "",
         review_count=state.review_count,
         transfer_available=s.transfer_available,
+        grounded=s.concept.source_ref.tier != SourceTier.MODEL_FALLBACK,
     )
 
 

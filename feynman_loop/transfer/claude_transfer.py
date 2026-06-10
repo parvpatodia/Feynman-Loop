@@ -11,7 +11,14 @@ from __future__ import annotations
 from anthropic import Anthropic
 from pydantic import BaseModel
 
-from feynman_loop.models import Citation, Concept, RubricPoint, TransferProbe, TransferResult
+from feynman_loop.models import (
+    MODEL_FALLBACK_LABEL,
+    Citation,
+    Concept,
+    RubricPoint,
+    TransferProbe,
+    TransferResult,
+)
 from feynman_loop.retrieval.base import RetrievedPassage
 from feynman_loop.transfer.base import TransferEngine
 
@@ -39,6 +46,16 @@ principle(s), so they can rebuild from the gap rather than face the full problem
 rules as before: a novel application (not a restatement), and EVERY rubric point grounded in a
 source passage by index with an exact quote. If a point can't be grounded, leave it out. Use only
 the passages provided."""
+
+_GEN_KNOWLEDGE_SYSTEM = """The learner gave NO source. Design a TRANSFER task for the concept from
+YOUR OWN GENERAL KNOWLEDGE: one novel application question (not a restatement), plus a rubric of
+the points a correct answer must contain. For each rubric point, put the criterion and a brief
+supporting fact in "quote"; set passage_index to 0 (unused). Only points you are confident about."""
+
+_REMEDIATION_KNOWLEDGE_SYSTEM = """The learner gave no source and just failed a transfer task on the
+listed points. From YOUR OWN GENERAL KNOWLEDGE, design ONE narrower application question targeting
+those missed points, plus a rubric (criterion + brief fact in "quote"; passage_index 0, unused).
+Only points you are confident about."""
 
 
 # ---- structured outputs the model fills (no identifiers; index only, by design) ----
@@ -72,7 +89,9 @@ class ClaudeTransfer(TransferEngine):
         self, *, concept: Concept, passages: list[RetrievedPassage]
     ) -> TransferProbe:
         if not passages:
-            raise ValueError(f"No passages to ground a transfer probe for {concept.label!r}.")
+            # tier-3: no source -> generate the transfer task from the model's own knowledge (flagged)
+            draft = self._knowledge_draft(_GEN_KNOWLEDGE_SYSTEM, f"Concept: {concept.label}")
+            return self._build_probe_from_knowledge(concept=concept, draft=draft)
 
         numbered = "\n\n".join(f"[{i}] {p.text}" for i, p in enumerate(passages))
         user_msg = f"Concept: {concept.label}\n\nSource passages:\n{numbered}"
@@ -91,10 +110,15 @@ class ClaudeTransfer(TransferEngine):
     def generate_remediation(
         self, *, concept: Concept, passages: list[RetrievedPassage], missed: list[RubricPoint]
     ) -> TransferProbe:
-        if not passages:
-            raise ValueError(f"No passages to ground a remediation probe for {concept.label!r}.")
-        numbered = "\n\n".join(f"[{i}] {p.text}" for i, p in enumerate(passages))
         missed_str = "\n".join(f"- {m.criterion}" for m in missed) or "(unspecified)"
+        if not passages:
+            # tier-3: generate the narrower retry from the model's own knowledge (flagged)
+            draft = self._knowledge_draft(
+                _REMEDIATION_KNOWLEDGE_SYSTEM,
+                f"Concept: {concept.label}\n\nMissed points:\n{missed_str}",
+            )
+            return self._build_probe_from_knowledge(concept=concept, draft=draft)
+        numbered = "\n\n".join(f"[{i}] {p.text}" for i, p in enumerate(passages))
         user_msg = (
             f"Concept: {concept.label}\n\n"
             f"The learner just failed to apply these specific points:\n{missed_str}\n\n"
@@ -129,6 +153,29 @@ class ClaudeTransfer(TransferEngine):
             # WHY: no grounded rubric means we cannot fairly score an answer. Refuse to ask
             # rather than test against invented truth (the trust criterion).
             raise ValueError("Could not ground a transfer rubric in the source; not asking.")
+        return TransferProbe(concept_id=concept.id, question=draft.question, rubric=rubric)
+
+    def _knowledge_draft(self, system: str, user_msg: str) -> _ProbeDraft:
+        return self._client.messages.parse(
+            model=self._model,
+            max_tokens=16000,
+            thinking={"type": "adaptive"},
+            system=system,
+            messages=[{"role": "user", "content": user_msg}],
+            output_format=_ProbeDraft,
+        ).parsed_output
+
+    def _build_probe_from_knowledge(self, *, concept: Concept, draft: _ProbeDraft) -> TransferProbe:
+        # tier-3: citations are flagged model-knowledge, not a real source quote
+        rubric = [
+            RubricPoint(
+                criterion=item.criterion,
+                citation=Citation(doc_label=MODEL_FALLBACK_LABEL, doc_id=None, quote=item.quote),
+            )
+            for item in draft.rubric
+        ]
+        if not rubric:
+            raise ValueError("Could not build a knowledge rubric for the transfer probe.")
         return TransferProbe(concept_id=concept.id, question=draft.question, rubric=rubric)
 
     def score_answer(self, *, probe: TransferProbe, user_answer: str) -> TransferResult:

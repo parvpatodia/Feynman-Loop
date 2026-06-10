@@ -24,17 +24,22 @@ TRANSFER_GATE = 0.6
 REMEDIATION_GATE = 0.6
 
 
+def _passages(concept: Concept, retriever: Retriever | None, k: int):
+    # WHY: retriever is None for tier-3 (no source). Empty passages -> the judge/transfer build
+    # from the model's own knowledge (flagged), so one code path serves grounded and no-source.
+    return retriever.retrieve(query=concept.source_ref.retrieval_query, k=k) if retriever else []
+
+
 def build_concept_rubric(
     *,
     concept: Concept,
-    retriever: Retriever,
+    retriever: Retriever | None,
     judge: Judge,
     k: int = 4,
 ) -> None:
-    """Build the concept's fixed scoring rubric from the source, ONCE at setup, and store it on
-    the concept. Every review then scores against the same key points (consistent, responsive)."""
-    passages = retriever.retrieve(query=concept.source_ref.retrieval_query, k=k)
-    concept.rubric = judge.build_rubric(concept=concept, passages=passages)
+    """Build the concept's fixed scoring rubric ONCE at setup and store it on the concept. With a
+    source (retriever) the rubric is grounded in it; with no source it's built from model knowledge."""
+    concept.rubric = judge.build_rubric(concept=concept, passages=_passages(concept, retriever, k))
 
 
 def run_review(
@@ -75,13 +80,12 @@ def run_review(
 def generate_transfer_probe(
     *,
     concept: Concept,
-    retriever: Retriever,
+    retriever: Retriever | None,
     engine: TransferEngine,
     k: int = 4,
 ) -> TransferProbe:
-    """Retrieve the grounding passages, then generate a grounded transfer challenge."""
-    passages = retriever.retrieve(query=concept.source_ref.retrieval_query, k=k)
-    return engine.generate_probe(concept=concept, passages=passages)
+    """Generate a transfer challenge, grounded in the source if there is one, else from knowledge."""
+    return engine.generate_probe(concept=concept, passages=_passages(concept, retriever, k))
 
 
 def score_transfer(
@@ -113,11 +117,10 @@ def score_transfer(
 def generate_remediation_probe(
     *,
     concept: Concept,
-    retriever: Retriever,
+    retriever: Retriever | None,
     engine: TransferEngine,
     missed: list[RubricPoint],
     k: int = 4,
 ) -> TransferProbe:
     """A narrower retry focused on the points the learner missed. The caller bounds it to one."""
-    passages = retriever.retrieve(query=concept.source_ref.retrieval_query, k=k)
-    return engine.generate_remediation(concept=concept, passages=passages, missed=missed)
+    return engine.generate_remediation(concept=concept, passages=_passages(concept, retriever, k), missed=missed)

@@ -135,6 +135,7 @@
   .loading::after { content: ""; display: inline-block; width: 12px; text-align: left; animation: dots 1.2s steps(4,end) infinite; }
   @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
   .err { color: var(--danger); font-size: 13.5px; margin-top: 12px; }
+  .note { font-size: 12.5px; color: var(--gap); background: rgba(224,163,90,0.10); border: 1px solid rgba(224,163,90,0.28); border-radius: 9px; padding: 9px 12px; margin: 0 0 14px; }
 </style>
 </head>
 <body>
@@ -157,8 +158,8 @@
   <div class="col">
     <section class="card" id="setup">
       <h2><span class="step">1</span>Your material</h2>
-      <label for="source">Source text (paste your notes or a passage)</label>
-      <textarea id="source" placeholder="Paste the trusted source for this concept..."></textarea>
+      <label for="source">Source text (optional, paste your notes or a passage)</label>
+      <textarea id="source" placeholder="Paste a trusted source, or leave empty to be tested from general knowledge..."></textarea>
       <label for="file">...or upload a PDF / text file</label>
       <input id="file" type="file" accept=".pdf,.txt" />
       <label for="concept">Concept you want to test yourself on</label>
@@ -220,6 +221,7 @@
 
     <section class="card hidden" id="result">
       <h2>What it found</h2>
+      <div class="note hidden" id="sourceNote">Judged against general knowledge (unverified), you gave no source. Add your own material for your exact framing; transfer below is the real test either way.</div>
       <div class="score" id="understanding"></div>
       <div class="progress"><div class="progress-fill" id="understandingBar"></div></div>
       <div id="correct"></div>
@@ -261,7 +263,7 @@ async function startSession() {
   const concept = document.getElementById("concept").value.trim();
   const file = document.getElementById("file").files[0];
   if (!concept) { setErr("setupErr", "Name the concept."); return; }
-  if (!source && !file) { setErr("setupErr", "Paste a source or upload a file."); return; }
+  // no source/file is fine: tier-3 tests you from general knowledge
   document.getElementById("startBtn").disabled = true;
   show("setupLoading");
   try {
@@ -313,6 +315,7 @@ async function submitExplanation() {
 
 function renderReview(r) {
   hide("feedbackPlaceholder");
+  if (r.grounded) { hide("sourceNote"); } else { show("sourceNote"); }
   const pct = Math.round(r.understanding_level * 100);
   document.getElementById("understanding").innerHTML = `${pct}% <small>understanding</small>`;
   document.getElementById("understandingBar").style.width = pct + "%";

@@ -67,6 +67,14 @@ def test_build_concept_rubric_uses_concept_query_and_sets_rubric():
     assert c.rubric == rubric
 
 
+def test_build_concept_rubric_without_source_uses_knowledge():
+    # tier-3: retriever=None -> no retrieval -> judge builds the rubric from model knowledge
+    c = _concept()
+    rubric = [RubricPoint(criterion="x", citation=Citation(doc_label="general knowledge (unverified)", quote="q"))]
+    build_concept_rubric(concept=c, retriever=None, judge=_FakeJudge(rubric=rubric))
+    assert c.rubric == rubric
+
+
 def test_run_review_judges_and_persists(tmp_path):
     c = _concept()
     user_id = uuid4()

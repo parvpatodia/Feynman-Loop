@@ -64,10 +64,17 @@ def test_build_rubric_grounds_points_in_real_passages():
     assert rubric[1].citation.doc_id == passages[1].doc_id
 
 
-def test_build_rubric_refuses_without_passages():
-    judge = ClaudeJudge(client=_FakeClient())
-    with pytest.raises(ValueError):
-        judge.build_rubric(concept=_concept(), passages=[])
+def test_build_rubric_from_knowledge_when_no_source():
+    # tier-3: no passages -> build from model knowledge, flagged lower-confidence
+    from feynman_loop.models import MODEL_FALLBACK_LABEL
+
+    draft = _RubricDraft(points=[
+        _RubricItem(criterion="computes gradients via the chain rule", passage_index=0, quote="brief fact"),
+    ])
+    judge = ClaudeJudge(client=_FakeClient(rubric_draft=draft))
+    rubric = judge.build_rubric(concept=_concept(), passages=[])
+    assert rubric[0].citation.doc_label == MODEL_FALLBACK_LABEL
+    assert rubric[0].citation.doc_id is None
 
 
 def test_evaluate_score_is_computed_from_statuses():

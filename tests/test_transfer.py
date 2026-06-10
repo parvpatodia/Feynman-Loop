@@ -83,10 +83,17 @@ def test_generate_probe_clamps_bad_index():
     assert probe.rubric[0].citation.doc_id == passages[0].doc_id  # clamped to a real passage
 
 
-def test_generate_probe_refuses_without_passages():
-    engine = ClaudeTransfer(client=_FakeClient())
-    with pytest.raises(ValueError):
-        engine.generate_probe(concept=_concept(), passages=[])
+def test_generate_probe_from_knowledge_when_no_source():
+    # tier-3: no passages -> generate the transfer task from model knowledge, flagged
+    from feynman_loop.models import MODEL_FALLBACK_LABEL
+
+    draft = _ProbeDraft(question="Apply it to a novel case you weren't shown.", rubric=[
+        _RubricItem(criterion="uses the chain rule", passage_index=0, quote="brief fact"),
+    ])
+    engine = ClaudeTransfer(client=_FakeClient(probe_draft=draft))
+    probe = engine.generate_probe(concept=_concept(), passages=[])
+    assert probe.rubric[0].citation.doc_label == MODEL_FALLBACK_LABEL
+    assert probe.rubric[0].citation.doc_id is None
 
 
 def test_generate_probe_refuses_when_nothing_grounds():
