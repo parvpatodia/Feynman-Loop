@@ -32,10 +32,19 @@ Set your Anthropic key in the shell only. Never commit it or paste it anywhere.
 export ANTHROPIC_API_KEY=...
 ```
 
-Point it at a plain-text source, name a concept, and give a retrieval query:
+Point it at a plain-text source and name a concept (the retrieval query is derived from the concept automatically):
 
 ```
-.venv/bin/python -m feynman_loop.cli path/to/source.txt "Backpropagation" "backprop gradients chain rule optimizer"
+.venv/bin/python -m feynman_loop.cli path/to/source.txt "Backpropagation"
 ```
 
-You type your explanation, then an empty line to submit. It returns the grounded gaps and the next-due date. Plain-text sources only for now (no PDF parsing yet).
+You type your explanation, then an empty line to submit. It returns the grounded gaps and, if your explanation is solid, a transfer challenge. Plain-text sources only for now (no PDF parsing yet).
+
+## Run the web UI
+
+```
+export ANTHROPIC_API_KEY=...
+.venv/bin/python -m uvicorn feynman_loop.web.app:app --port 8000
+```
+
+Open http://localhost:8000, paste your source, name the concept, and explain it. The grounded gaps and the transfer challenge render in the browser.
