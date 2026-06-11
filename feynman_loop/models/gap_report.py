@@ -29,6 +29,10 @@ class RubricPoint(BaseModel):
 
     criterion: str
     citation: Citation  # WHY: every criterion traces to the source, or we'd grade on invention
+    # WHY: one retrieval question per point, written at rubric-build time. This is what makes
+    # rapid mode possible: the concept is checked as a 2-minute volley of one-liner answers,
+    # one per point, instead of one essay. Must prompt the idea WITHOUT revealing it.
+    question: str = ""
 
 
 class Gap(BaseModel):

@@ -37,7 +37,9 @@
     }
   },
   "tools": [
-    { "name": "start_check", "description": "Start an explain-back check on a concept, grounded in source text from the conversation" },
+    { "name": "quick_check", "description": "The 2-minute volley: one sharp question per rubric point, one-line answers, instant verdicts" },
+    { "name": "answer", "description": "Submit the learner's answer to the current volley question; returns the verdict and next question" },
+    { "name": "start_check", "description": "Start a full explain-back check on a concept, grounded in source text from the conversation" },
     { "name": "judge_explanation", "description": "Score the learner's explanation against the concept's fixed rubric; gaps come back as questions" },
     { "name": "make_transfer", "description": "Generate a novel application challenge once the explanation is solid" },
     { "name": "score_transfer", "description": "Score the transfer answer; one bounded retry if it falls short" },

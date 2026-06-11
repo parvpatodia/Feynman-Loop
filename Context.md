@@ -243,6 +243,25 @@ of what you know. Fix: the ledger renders as a knowledge graph where node status
   Web binds localhost only (single-user by design; multi-user = contribution path).
 - 90 tests green. CONTRIBUTING.md seeds the community work.
 
+**Decision 23 — rapid mode: the volley (2026-06-10).**
+Driven by Parv's FIRST real usage session (Gradient Descent: 8% -> 58%): "no one will write
+paragraphs; make it quicker and engaging or no one will use it."
+- The fix shrinks the unit of INTERACTION, never the unit of MEASUREMENT. Each RubricPoint now
+  carries a per-point retrieval `question` (written in the same rubric-build call). `quick_check`
+  + `answer` run the check as a volley: one question, one one-line answer from memory, instant
+  per-point verdict (fast model, ~1s), next question. 4-8 turns, 2-3 minutes. The final score is
+  the same per-point math, written through the same record_review gating into the same ledger;
+  events carry mode="rapid" vs "full" so the record stays honest (synthesis is only proven by
+  full explanations and transfer; transfer still gates mastery).
+- Zero-key volley: the host writes its own questions, judges each answer, and submits
+  status+evidence per turn; the server verifies evidence and computes, as in Decision 21.
+- Rejected: MCQs (recognition, not retrieval; trivially gameable). Each volley answer is still
+  free recall.
+- Gamification within Decision 8: ONE number, the streak (consecutive days with a rep,
+  yesterday keeps it alive). Computed in code from the event log; shown in progress, volley
+  summaries, and the daily notification ("Day N: ..."). No points, no ranks, no leaderboards.
+- Legacy rubrics get questions backfilled once (fast model) and persisted.
+
 **Decision 22 — direct grounding, the source snapshot, and the one-click bundle (2026-06-10).**
 Driven by Parv's adoption pass: terminal install is friction; restarts must lose nothing; the
 rubric should be as accurate as possible.

@@ -36,6 +36,15 @@ class _FakeJudge:
             gaps=[Gap(description="What performs the weight update?", citation=Citation(doc_label="src", quote="optimizer"))],
         )
 
+    def evaluate_point(self, *, criterion, question, answer):
+        # deterministic single-point verdict for volley tests
+        if "right" in answer:
+            return "met", True, ""
+        return "missed", True, f"Try again: what about {criterion}?"
+
+    def make_point_questions(self, *, concept_label, criteria):
+        return [f"What is {c}?" for c in criteria]
+
 
 class _FakeTransfer:
     def generate_probe(self, *, concept, passages):
@@ -385,6 +394,74 @@ def test_submit_tools_error_in_api_mode():
     started = srv.start_check("Backpropagation")       # API mode: rubric built by the judge
     assert "error" in srv.submit_rubric(started["check_id"], points=_zk_rubric_points())
     assert "error" in srv.submit_judgment(started["check_id"], [])
+
+
+# --- rapid mode: the 2-minute volley ---
+
+def test_rapid_volley_independent(monkeypatch):
+    class _TwoPointJudge(_FakeJudge):
+        def build_rubric(self, *, concept, passages):
+            label = passages[0].doc_label if passages else "general knowledge (unverified)"
+            return [
+                RubricPoint(criterion="first idea", citation=Citation(doc_label=label, quote="q1"),
+                            question="Q1?"),
+                RubricPoint(criterion="second idea", citation=Citation(doc_label=label, quote="q2"),
+                            question="Q2?"),
+            ]
+
+    monkeypatch.setattr(srv, "_make_judge", lambda: _TwoPointJudge())
+    started = srv.quick_check("Osmosis")
+    assert started["mode"] == "rapid"
+    assert started["total_questions"] == 2
+    assert started["question"] == "Q1?"
+    cid = started["check_id"]
+
+    mid = srv.answer(cid, "the right idea in one line")
+    assert mid["verdict"] == "met"
+    assert mid["progress"] == "1/2"
+    assert mid["next_question"] == "Q2?"
+
+    done = srv.answer(cid, "no clue")
+    assert done["done"] is True
+    assert done["understanding_level"] == 0.5          # (1 + 0)/2, computed in code, not vibes
+    assert done["streak_days"] >= 1                    # today's rep counts toward the streak
+    assert "Try again" in done["gaps"][0]["probe"]     # a probe, never the answer
+    assert srv._make_learner_log().events()[-1].mode == "rapid"
+
+
+def test_rapid_volley_questions_backfilled_for_legacy_rubrics():
+    started = srv.quick_check("Backpropagation")       # _FakeJudge rubric has no question field
+    assert started["question"] == "What is x?"         # backfilled via make_point_questions
+    assert srv._make_concept_store().find_by_label("Backpropagation").rubric[0].question == "What is x?"
+
+
+def test_rapid_volley_zero_key(zero_key):
+    first = srv.quick_check("Entropy")
+    assert first["action"] == "build_rubric"
+    assert "quick_check again" in first["instruction"]
+    srv.submit_rubric(first["check_id"], points=[
+        {"criterion": f"distinct checkable idea number {i}", "passage_index": 0,
+         "quote": "a brief supporting fact"} for i in range(4)])
+
+    started = srv.quick_check("Entropy")
+    assert started["total_questions"] == 4
+    assert started["points"][0]["criterion"].startswith("distinct")
+    cid = started["check_id"]
+
+    for i in range(3):
+        r = srv.answer(cid, f"a real one liner answer number {i}",
+                       status="met", evidence=f"one liner answer number {i}")
+        assert r.get("verdict") == "met"
+    done = srv.answer(cid, "another short answer", status="met", evidence="completely invented quote")
+    assert done["done"] is True
+    assert done["judge"] == "host-verified"
+    assert done["evidence_failures"] == 1              # fabricated credit caught and downgraded
+    assert done["understanding_level"] == round((1 + 1 + 1 + 0.5) / 4, 2)
+
+
+def test_answer_requires_a_running_volley():
+    started = srv.start_check("Osmosis")               # full mode, no volley
+    assert "error" in srv.answer(started["check_id"], "x")
 
 
 # --- grounding: direct passages, the stored snapshot, and restart survival ---

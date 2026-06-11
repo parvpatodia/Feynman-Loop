@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
 from uuid import UUID
@@ -55,6 +55,10 @@ class ReviewEvent(BaseModel):
     # under the verified protocol (evidence checked in code, score computed in code, but softer:
     # the host can be lenient within its quotes). The ledger stays honest about its own strength.
     judge: Literal["independent", "host"] = "independent"
+    # WHY: how the explanation arrived. "full" = one composed explanation; "rapid" = a volley of
+    # per-point one-liners. Same scoring math, but the record keeps the distinction honest
+    # (synthesis is only proven by full explanations and transfer).
+    mode: Literal["full", "rapid"] = "full"
     at: datetime = Field(default_factory=_utcnow)
 
 
@@ -76,11 +80,29 @@ class JsonLearnerLog:
         return json.loads(self._path.read_text()) if self._path.exists() else []
 
 
-def derive_profile(events: list[ReviewEvent]) -> dict:
+def streak_days(events: list[ReviewEvent], *, now: datetime | None = None) -> int:
+    """Consecutive days with at least one rep, counting back from today (yesterday keeps it
+    alive). WHY this is the ONE gamified number: it rewards showing up, which is the behavior
+    that compounds; ranking scores would reward gaming them (Decision 8)."""
+    now = now or _utcnow()
+    days = {e.at.date() for e in events}
+    day = now.date()
+    if day not in days:
+        day = day - timedelta(days=1)  # today's rep not done yet; streak survives until midnight
+        if day not in days:
+            return 0
+    n = 0
+    while day in days:
+        n += 1
+        day = day - timedelta(days=1)
+    return n
+
+
+def derive_profile(events: list[ReviewEvent], *, now: datetime | None = None) -> dict:
     """Aggregate the log into the learner's profile. Computed in code, deterministically, so the
     insight is auditable from the events rather than a model's impression."""
     if not events:
-        return {"reviews": 0, "concepts": 0, "insight": "No reviews yet."}
+        return {"reviews": 0, "concepts": 0, "streak_days": 0, "insight": "No reviews yet."}
 
     explains = [e for e in events if e.kind == "explain"]
     transfers = [e for e in events if e.kind == "transfer"]
@@ -107,6 +129,7 @@ def derive_profile(events: list[ReviewEvent]) -> dict:
     return {
         "reviews": len(events),
         "concepts": len({e.concept_label for e in events}),
+        "streak_days": streak_days(events, now=now),
         "avg_explain": avg_explain,
         "avg_transfer": avg_transfer,
         "weak_modes": weak_modes,

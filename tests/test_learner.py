@@ -78,3 +78,23 @@ def test_tagger_pairs_tags_by_index():
     tagger = ClaudeMissTagger(client=SimpleNamespace(messages=_Msgs()))
     assert tagger.tag(["a", "b"]) == ["mechanism", "application"]  # extras dropped
     assert tagger.tag([]) == []  # no call, no tags
+
+
+def test_streak_counts_consecutive_days_and_forgives_today():
+    from datetime import datetime, timedelta, timezone
+    from uuid import uuid4
+
+    from feynman_loop.learner import streak_days
+
+    now = datetime(2026, 6, 10, 12, tzinfo=timezone.utc)
+
+    def ev(days_ago):
+        return ReviewEvent(concept_id=uuid4(), concept_label="X", kind="explain", score=0.5,
+                           at=now - timedelta(days=days_ago))
+
+    assert streak_days([], now=now) == 0
+    assert streak_days([ev(0)], now=now) == 1
+    assert streak_days([ev(0), ev(1), ev(2)], now=now) == 3
+    assert streak_days([ev(1)], now=now) == 1   # today's rep not done yet: streak alive, not grown
+    assert streak_days([ev(2)], now=now) == 0   # a full missed day kills it
+    assert streak_days([ev(0), ev(2)], now=now) == 1

@@ -120,14 +120,17 @@ def _human(data: dict) -> str:
 
 
 def _notification_text(data: dict) -> str:
-    """The OS-notification line: one concrete question, not a guilt counter."""
+    """The OS-notification line: one concrete question, not a guilt counter. A live streak is
+    named because protecting it is the one gamified motivation we allow (consistency, not rank)."""
     if not data["due"]:
         return ""
     top = data["due"][0]
+    streak = data["profile"].get("streak_days", 0)
+    prefix = f"Day {streak + 1}: " if streak >= 2 else ""
     if top.get("probe"):
-        return f"{top['concept']}: {top['probe']}"[:180]
+        return f"{prefix}{top['concept']}: {top['probe']}"[:180]
     more = f" (+{len(data['due']) - 1} more)" if len(data["due"]) > 1 else ""
-    return f"30-second rep due: {top['concept']}{more}"
+    return f"{prefix}30-second rep due: {top['concept']}{more}"
 
 
 def _post_notification(text: str) -> None:

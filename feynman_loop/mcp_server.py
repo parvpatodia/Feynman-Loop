@@ -130,7 +130,7 @@ def _sync_vault() -> None:
 
 def _log_event(*, concept: Concept, kind: str, score: float, missed: list[str],
                explanation: str = "", rehearsed: bool = False,
-               judge: str = "independent") -> None:
+               judge: str = "independent", mode: str = "full") -> None:
     """Append to the learner ledger; tagging is best-effort and never blocks the review.
     In zero-key mode the tagger has no client, so the try/except leaves tags empty."""
     try:
@@ -140,7 +140,7 @@ def _log_event(*, concept: Concept, kind: str, score: float, missed: list[str],
     _make_learner_log().append(
         ReviewEvent(concept_id=concept.id, concept_label=concept.label, kind=kind, score=score,
                     missed=missed, tags=tags, explanation=explanation, rehearsed=rehearsed,
-                    judge=judge)
+                    judge=judge, mode=mode)
     )
     _sync_vault()  # every attempt is reflected in the knowledge graph immediately
 
@@ -157,6 +157,10 @@ class _Check:
         # (or a user steering it) cannot skip a step or judge text the server never saw.
         self.awaiting = None
         self.pending_text = ""           # the explanation/answer locked in BEFORE judging starts
+        # rapid mode (the volley): one question per rubric point, one-liner answers, judged
+        # point-by-point. pos = which point is live; verdicts/answers accumulate to the same
+        # scoring math and the same ledger write as a full explanation.
+        self.rapid = None                # None | {"pos": int, "verdicts": [...], "answers": [...]}
 
 
 _CHECKS: dict[str, _Check] = {}
@@ -233,6 +237,7 @@ def _points_from_host(points: list, passages, *, lo: int, hi: int) -> list[Rubri
             continue
         criterion = " ".join(str(raw.get("criterion", "")).split())
         quote = str(raw.get("quote", "")).strip()
+        question = " ".join(str(raw.get("question", "")).split())
         if len(criterion) < 8:
             continue  # "knows it" is not a checkable idea; drop trivial criteria
         citation = Citation(doc_label=MODEL_FALLBACK_LABEL, doc_id=None, quote=quote)
@@ -247,7 +252,7 @@ def _points_from_host(points: list, passages, *, lo: int, hi: int) -> list[Rubri
             if match is not None:
                 p = passages[match]
                 citation = Citation(doc_label=p.doc_label, doc_id=p.doc_id, quote=quote)
-        built.append(RubricPoint(criterion=criterion, citation=citation))
+        built.append(RubricPoint(criterion=criterion, citation=citation, question=question))
     if len(built) < lo:
         raise ValueError(
             f"need at least {lo} valid rubric points for this depth, got {len(built)}; "
@@ -604,6 +609,155 @@ def submit_judgment(check_id: str, verdicts: list[dict]) -> dict:
 
     return {"error": "nothing awaiting judgment; follow a judging protocol from "
                      "judge_explanation or score_transfer first"}
+
+
+def _ensure_questions(chk: _Check) -> None:
+    """Backfill per-point questions for rubrics built before rapid mode; persisted once."""
+    rubric = chk.concept.rubric
+    if all(rp.question for rp in rubric):
+        return
+    try:
+        qs = _make_judge().make_point_questions(
+            concept_label=chk.concept.label, criteria=[rp.criterion for rp in rubric])
+    except Exception:
+        qs = ["" for _ in rubric]
+    for rp, q in zip(rubric, qs, strict=True):
+        if not rp.question:
+            rp.question = q or (f"In one or two sentences, explain the next aspect of "
+                                f"{chk.concept.label}.")
+    _make_concept_store().put(chk.concept)
+
+
+def _finish_rapid(chk: _Check, *, judge: str) -> dict:
+    """Close the volley: same scoring math, same gated scheduling, same ledger as a full review."""
+    rubric = chk.concept.rubric
+    rapid = chk.rapid
+    total, correct, gaps, failures = 0.0, [], [], 0
+    for rp, (status, ok, probe) in zip(rubric, rapid["verdicts"], strict=True):
+        if not ok:
+            failures += 1
+        value = STATUS_VALUE[status]
+        total += value
+        if value >= 1.0:
+            correct.append(rp.criterion)
+        else:
+            gaps.append(Gap(description=probe or rp.question or _GENERIC_PROBE, citation=rp.citation))
+    report = GapReport(
+        concept_id=chk.concept.id,
+        user_explanation="\n".join(rapid["answers"]),  # their words, per point, for the journey
+        understanding_level=total / len(rubric),
+        correct_points=correct, gaps=gaps, evidence_failures=failures,
+    )
+    state, rehearsed = loop_ops.record_review(
+        concept=chk.concept, user_id=_make_identity().user_id(),
+        explanation=report.user_explanation, report=report, store=_make_store(),
+    )
+    chk.transfer_available = report.understanding_level >= loop_ops.TRANSFER_GATE
+    chk.rapid = None
+    chk.probe = None
+    met = set(correct)
+    missed = [rp.criterion for rp in rubric if rp.criterion not in met]
+    _log_event(concept=chk.concept, kind="explain", score=report.understanding_level,
+               missed=missed, explanation=report.user_explanation, rehearsed=rehearsed,
+               judge=judge, mode="rapid")
+    resp = _review_response(chk, report, state, rehearsed, judge=judge)
+    resp["done"] = True
+    resp["streak_days"] = derive_profile(_make_learner_log().events()).get("streak_days", 0)
+    return resp
+
+
+@mcp.tool()
+def quick_check(concept: str, source_text: str = "", depth: str = "") -> dict:
+    """The 2-minute volley: one sharp question per rubric point, answered in a line or two each,
+    judged point by point. Same honest scoring and ledger as a full check, a fraction of the
+    friction. Use this by default; use start_check when the learner wants to compose a full
+    explanation. Relay each question and collect the LEARNER's answer; never answer yourself."""
+    started = start_check(concept, source_text=source_text, depth=depth)
+    if "error" in started or started.get("action") == "build_rubric":
+        if started.get("action") == "build_rubric":
+            started["instruction"] += " Then call quick_check again to begin the volley."
+        return started
+    chk = _CHECKS[started["check_id"]]
+    chk.rapid = {"pos": 0, "verdicts": [], "answers": []}
+    n = len(chk.concept.rubric)
+
+    if not _independent_judge_available():
+        return {
+            **started,
+            "mode": "rapid (zero-key: YOU judge each answer; the server verifies and scores)",
+            "total_questions": n,
+            "points": [{"index": i, "criterion": rp.criterion}
+                       for i, rp in enumerate(chk.concept.rubric)],
+            "instruction": (
+                "Run the volley NOW, one point at a time and in order. For each point: write ONE "
+                "short question yourself that prompts the idea WITHOUT revealing the criterion, "
+                "ask the learner, then call answer(check_id, response, status, evidence, probe) "
+                "with the learner's answer and YOUR strict verdict (evidence = verbatim quote "
+                "from their answer; probe = a retrieval question if not met). The server "
+                "verifies evidence and computes all scores. Keep the pace fast. Never answer "
+                "for the learner."
+            ),
+        }
+
+    _ensure_questions(chk)
+    return {
+        **started,
+        "mode": "rapid",
+        "total_questions": n,
+        "question": chk.concept.rubric[0].question,
+        "instruction": ("Volley of " + str(n) + " quick questions. Relay this question, collect "
+                        "the learner's short answer, call answer(check_id, response). Keep the "
+                        "pace fast; one line is enough. ") + _NO_ANSWER,
+    }
+
+
+@mcp.tool()
+def answer(check_id: str, response: str, status: str = "", evidence: str = "", probe: str = "") -> dict:
+    """Submit the learner's answer to the current volley question (rapid mode). Returns the
+    verdict and the next question, or the final scorecard. In zero-key mode YOU supply status
+    (met/partial/missed), evidence (verbatim quote from the answer), and probe; the server
+    verifies the evidence and computes the score either way."""
+    chk = _CHECKS.get(check_id)
+    if chk is None:
+        return {"error": "unknown check_id; call quick_check first"}
+    if chk.rapid is None:
+        return {"error": "no volley running; call quick_check first"}
+    rubric = chk.concept.rubric
+    i = chk.rapid["pos"]
+    rp = rubric[i]
+
+    if _independent_judge_available():
+        verdict_status, ok, verdict_probe = _make_judge().evaluate_point(
+            criterion=rp.criterion, question=rp.question, answer=response)
+        judge = "independent"
+    else:
+        if status not in STATUS_VALUE:
+            return {"error": "zero-key volley: pass status=met|partial|missed with evidence "
+                             "quoted verbatim from the learner's answer"}
+        verdict_status, ok = verified_status(status=status, evidence=evidence, text=response)
+        verdict_probe = " ".join(probe.split())
+        judge = "host"
+
+    chk.rapid["verdicts"].append((verdict_status, ok, verdict_probe))
+    chk.rapid["answers"].append(response)
+    chk.rapid["pos"] = i + 1
+
+    if chk.rapid["pos"] >= len(rubric):
+        return _finish_rapid(chk, judge=judge)
+
+    nxt = rubric[chk.rapid["pos"]]
+    out = {
+        "verdict": verdict_status,
+        "progress": f"{chk.rapid['pos']}/{len(rubric)}",
+        "instruction": "Relay the next question; keep the pace. " + _NO_ANSWER,
+    }
+    if not ok:
+        out["evidence_failures"] = 1
+    if _independent_judge_available():
+        out["next_question"] = nxt.question
+    else:
+        out["next_point"] = {"index": chk.rapid["pos"], "criterion": nxt.criterion}
+    return out
 
 
 @mcp.tool()

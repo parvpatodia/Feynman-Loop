@@ -51,7 +51,9 @@ _RUBRIC_SYSTEM = """List the key points a complete, correct explanation of the c
 contain, based ONLY on the source passages. Each point is one checkable idea. The learner's
 target depth is {depth}: cover {scope} Aim for {count} points. Ground every point in a passage:
 give the passage index and an exact quote. If a point cannot be grounded in a passage, leave it
-out. Use only the passages provided; never add outside knowledge."""
+out. Use only the passages provided; never add outside knowledge.
+For each point, also write "question": ONE direct retrieval question answerable in a sentence or
+two, that prompts the learner to produce the point's idea WITHOUT revealing it."""
 
 _SCORE_SYSTEM = """Score a learner's explanation against a FIXED list of key points.
 
@@ -76,17 +78,43 @@ _RUBRIC_KNOWLEDGE_SYSTEM = """The learner gave NO source. List the key points a 
 explanation of the concept must contain, from YOUR OWN GENERAL KNOWLEDGE. The learner's target
 depth is {depth}: cover {scope} Aim for {count} points. For each point, put the criterion and a
 brief supporting fact in "quote"; set passage_index to 0 (unused here). Only include points you
-are confident are correct."""
+are confident are correct.
+For each point, also write "question": ONE direct retrieval question answerable in a sentence or
+two, that prompts the learner to produce the point's idea WITHOUT revealing it."""
+
+_POINT_SCORE_SYSTEM = """Judge ONE short answer against ONE criterion. The learner was asked a
+single question; their answer may be one line, voice-typed, informal. Status:
+- "met": the answer conveys the criterion's idea in the learner's own words.
+- "partial": touches it but incomplete or vague.
+- "missed": absent or wrong.
+Set "evidence" to a VERBATIM quote from the answer for met/partial (verified by the system).
+If not "met", set "probe": a question prompting the missing idea WITHOUT revealing it. Naming a
+term is not knowing it: "met" needs the mechanism or relationship, not the keyword."""
+
+_QUESTIONS_SYSTEM = """For each numbered criterion, write ONE direct retrieval question,
+answerable in a sentence or two, that prompts the learner to produce that idea WITHOUT revealing
+it. Return them in order, one per criterion."""
 
 
 class _RubricItem(BaseModel):
     criterion: str
     passage_index: int
     quote: str
+    question: str = ""  # the per-point retrieval question (rapid mode's volley unit)
 
 
 class _RubricDraft(BaseModel):
     points: list[_RubricItem]
+
+
+class _QuestionsDraft(BaseModel):
+    questions: list[str]
+
+
+class _PointVerdict(BaseModel):
+    status: Literal["met", "partial", "missed"]
+    evidence: str = ""
+    probe: str = ""
 
 
 class _CriterionStatus(BaseModel):
@@ -140,6 +168,7 @@ class ClaudeJudge(Judge):
                 RubricPoint(
                     criterion=item.criterion,
                     citation=Citation(doc_label=p.doc_label, doc_id=p.doc_id, quote=item.quote),
+                    question=item.question,
                 )
             )
         if not rubric:
@@ -160,12 +189,46 @@ class ClaudeJudge(Judge):
             RubricPoint(
                 criterion=it.criterion,
                 citation=Citation(doc_label=MODEL_FALLBACK_LABEL, doc_id=None, quote=it.quote),
+                question=it.question,
             )
             for it in draft.points
         ]
         if not rubric:
             raise ValueError(f"Could not build a knowledge rubric for {concept.label!r}.")
         return rubric
+
+    def evaluate_point(self, *, criterion: str, question: str, answer: str) -> tuple[str, bool, str]:
+        """Rapid mode: judge ONE short answer against ONE criterion. Returns (verified status,
+        evidence_ok, probe). Runs on the fast model: a volley only feels like a volley if each
+        turn comes back in about a second."""
+        from feynman_loop.providers import fast_model
+
+        draft: _PointVerdict = self._client.messages.parse(
+            model=fast_model(),
+            max_tokens=1024,
+            system=_POINT_SCORE_SYSTEM,
+            messages=[{"role": "user", "content":
+                       f"Criterion: {criterion}\nQuestion asked: {question}\nLearner's answer: {answer}"}],
+            output_format=_PointVerdict,
+        ).parsed_output
+        status, ok = verified_status(status=draft.status, evidence=draft.evidence, text=answer)
+        return status, ok, draft.probe
+
+    def make_point_questions(self, *, concept_label: str, criteria: list[str]) -> list[str]:
+        """Backfill per-point retrieval questions for rubrics built before rapid mode existed."""
+        from feynman_loop.providers import fast_model
+
+        numbered = "\n".join(f"[{i}] {c}" for i, c in enumerate(criteria))
+        draft: _QuestionsDraft = self._client.messages.parse(
+            model=fast_model(),
+            max_tokens=2048,
+            system=_QUESTIONS_SYSTEM,
+            messages=[{"role": "user", "content": f"Concept: {concept_label}\n\nCriteria:\n{numbered}"}],
+            output_format=_QuestionsDraft,
+        ).parsed_output
+        qs = list(draft.questions[: len(criteria)])
+        qs += [""] * (len(criteria) - len(qs))  # a short reply never corrupts the pairing
+        return qs
 
     def evaluate(self, *, concept: Concept, user_explanation: str) -> GapReport:
         rubric = concept.rubric

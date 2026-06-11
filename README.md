@@ -4,7 +4,18 @@ An AI tool for thought that makes you understand concepts deeply instead of offl
 
 ## How it works
 
-Explain-it-back. You explain a concept in your own words. The system retrieves the relevant passage from your own source material, judges your explanation only against that passage, and shows you the specific gaps, each grounded in a quote from the source. It records what you understood and computes when the concept is due to come back.
+Explain-it-back, at two speeds.
+
+**Rapid (default, 2-3 minutes):** say *"quiz me on backprop"*. You get one sharp question per
+rubric point, answer each in a line or two from memory, and see an instant verdict and a running
+score. Same honest measurement, a fraction of the friction.
+
+**Full:** you explain the whole concept in your own words and it is judged in one pass.
+
+Either way: the rubric is grounded in your own source material, gaps come back as questions
+(never answers), a transfer challenge tests whether you can APPLY the concept, and the ledger
+records the score and schedules when it comes back. One streak number tracks consistency;
+there are no points and no leaderboards.
 
 The project is governed by three docs, read in order: `PRINCIPLES.md` (the constitution), `CONTEXT.md` (current state and decision log), `LEARNINGS.md` (guardrails and findings).
 
