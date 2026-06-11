@@ -98,6 +98,39 @@ def streak_days(events: list[ReviewEvent], *, now: datetime | None = None) -> in
     return n
 
 
+# Milestones are a PURE function of the event log: no award table to store, nothing to game.
+# They reward showing up and coming back, never the score (Decision 8). Streak badges re-arm
+# after a lapse on purpose: re-earning "3-day streak" is exactly the moment to celebrate.
+_STREAK_MILESTONES = ((30, "30-day streak"), (14, "14-day streak"), (7, "7-day streak"),
+                      (3, "3-day streak"))
+_TRANSFER_PASS = 0.6  # mirrors loop.TRANSFER_GATE; local to avoid an import cycle
+
+
+def unlocked_milestones(events: list[ReviewEvent], *, now: datetime | None = None) -> list[str]:
+    """Every milestone the history implies right now. Callers diff against the log minus its
+    newest event to find what THIS rep unlocked."""
+    if not events:
+        return []
+    out: list[str] = []
+    if any(e.kind == "explain" for e in events):
+        out.append("First check complete")
+    if any(e.kind == "transfer" and e.score >= _TRANSFER_PASS for e in events):
+        out.append("First transfer passed")
+    labels = len({e.concept_label for e in events})
+    for n in (25, 10, 5):
+        if labels >= n:
+            out.append(f"{n} concepts tracked")
+            break
+    s = streak_days(events, now=now)
+    for d, name in _STREAK_MILESTONES:
+        if s >= d:
+            out.append(name)
+            break
+    if any((b.at - a.at).days >= 7 for a, b in zip(events, events[1:], strict=False)):
+        out.append("Comeback: back after a break")
+    return out
+
+
 def derive_profile(events: list[ReviewEvent], *, now: datetime | None = None) -> dict:
     """Aggregate the log into the learner's profile. Computed in code, deterministically, so the
     insight is auditable from the events rather than a model's impression."""

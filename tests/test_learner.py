@@ -98,3 +98,34 @@ def test_streak_counts_consecutive_days_and_forgives_today():
     assert streak_days([ev(1)], now=now) == 1   # today's rep not done yet: streak alive, not grown
     assert streak_days([ev(2)], now=now) == 0   # a full missed day kills it
     assert streak_days([ev(0), ev(2)], now=now) == 1
+
+
+def test_milestones_are_a_pure_function_of_the_log():
+    from datetime import datetime, timedelta, timezone
+    from uuid import uuid4
+
+    from feynman_loop.learner import unlocked_milestones
+
+    now = datetime(2026, 6, 10, 12, tzinfo=timezone.utc)
+
+    def ev(days_ago, kind="explain", score=0.5, label="X"):
+        return ReviewEvent(concept_id=uuid4(), concept_label=label, kind=kind, score=score,
+                           at=now - timedelta(days=days_ago))
+
+    assert unlocked_milestones([], now=now) == []
+    one = unlocked_milestones([ev(0)], now=now)
+    assert "First check complete" in one and "First transfer passed" not in one
+
+    with_pass = unlocked_milestones([ev(0), ev(0, kind="transfer", score=0.7)], now=now)
+    assert "First transfer passed" in with_pass
+    failed_only = unlocked_milestones([ev(0), ev(0, kind="transfer", score=0.3)], now=now)
+    assert "First transfer passed" not in failed_only   # passing means PASSING
+
+    streaky = unlocked_milestones([ev(2), ev(1), ev(0)], now=now)
+    assert "3-day streak" in streaky
+
+    five = unlocked_milestones([ev(0, label=f"L{i}") for i in range(5)], now=now)
+    assert "5 concepts tracked" in five
+
+    comeback = unlocked_milestones([ev(20), ev(0)], now=now)
+    assert "Comeback: back after a break" in comeback

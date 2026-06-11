@@ -30,7 +30,13 @@ import feynman_loop.loop as loop_ops
 from feynman_loop import paths, providers
 from feynman_loop.db import stores_for
 from feynman_loop.judge.claude_judge import DEPTH_RANGES, ClaudeJudge, depth_spec
-from feynman_loop.learner import ClaudeMissTagger, ReviewEvent, derive_profile
+from feynman_loop.learner import (
+    ClaudeMissTagger,
+    ReviewEvent,
+    derive_profile,
+    streak_days,
+    unlocked_milestones,
+)
 from feynman_loop.models import (
     MODEL_FALLBACK_LABEL,
     Citation,
@@ -47,7 +53,7 @@ from feynman_loop.relations import ClaudeRelatedConcepts
 from feynman_loop.retrieval.base import RetrievedPassage
 from feynman_loop.retrieval.query_expansion import ClaudeQueryExpander
 from feynman_loop.transfer.claude_transfer import ClaudeTransfer
-from feynman_loop.vault import mermaid_map, sync_vault
+from feynman_loop.vault import mermaid_map, status_of, sync_vault
 from feynman_loop.verification import STATUS_VALUE, evidence_supported, verified_status
 
 mcp = FastMCP("feynman-loop")
@@ -306,7 +312,35 @@ def _report_from_verdicts(chk: _Check, verdicts: list) -> GapReport:
     )
 
 
-def _review_response(chk: _Check, report, state, rehearsed: bool, *, judge: str) -> dict:
+def _status_of_state(state, *, now) -> str:
+    """The concept's level, derived from its earned interval (same rules as the vault/map)."""
+    if state is None or not (state.next_due_at and state.last_reviewed_at):
+        return "untested"
+    interval = (state.next_due_at - state.last_reviewed_at).total_seconds() / 86400
+    return status_of(interval_days=interval, due_now=state.next_due_at <= now, reviewed=True)
+
+
+def _progress_extras(*, prior_state=None, new_state=None) -> dict:
+    """The visible-progression layer: streak, level changes, freshly unlocked milestones. All
+    computed in code from the ledger; rewards consistency and territory, never the score, so
+    there is nothing here a learner could game by gaming the judge."""
+    events = _make_learner_log().events()
+    out: dict = {"streak_days": streak_days(events)}
+    fresh = [m for m in unlocked_milestones(events)
+             if m not in unlocked_milestones(events[:-1])]
+    if fresh:
+        out["milestones"] = fresh
+    if new_state is not None:
+        now = datetime.now(timezone.utc)
+        before = _status_of_state(prior_state, now=now)
+        after = _status_of_state(new_state, now=now)
+        if before != after:
+            out["level"] = f"{before} -> {after}"
+    return out
+
+
+def _review_response(chk: _Check, report, state, rehearsed: bool, *, judge: str,
+                     prior_state=None) -> dict:
     """One response shape for both judging modes, so the host-facing contract never forks."""
     if rehearsed:
         return {
@@ -328,6 +362,7 @@ def _review_response(chk: _Check, report, state, rehearsed: bool, *, judge: str)
         "grounded": chk.concept.source_ref.tier != SourceTier.MODEL_FALLBACK,
         "instruction": _NO_ANSWER,
     }
+    resp.update(_progress_extras(prior_state=prior_state, new_state=state))
     if judge == "host":
         resp["judge"] = "host-verified"
     if report.evidence_failures:
@@ -522,8 +557,10 @@ def judge_explanation(check_id: str, explanation: str) -> dict:
             ),
         }
 
+    uid = _make_identity().user_id()
+    prior = _make_store().get(user_id=uid, concept_id=chk.concept.id)
     report, state, rehearsed = loop_ops.run_review(
-        concept=chk.concept, user_id=_make_identity().user_id(), explanation=explanation,
+        concept=chk.concept, user_id=uid, explanation=explanation,
         judge=_make_judge(), store=_make_store(),
     )
     chk.transfer_available = report.understanding_level >= loop_ops.TRANSFER_GATE
@@ -533,7 +570,7 @@ def judge_explanation(check_id: str, explanation: str) -> dict:
     missed = [rp.criterion for rp in chk.concept.rubric if rp.criterion not in met]
     _log_event(concept=chk.concept, kind="explain", score=report.understanding_level,
                missed=missed, explanation=explanation, rehearsed=rehearsed)
-    return _review_response(chk, report, state, rehearsed, judge="independent")
+    return _review_response(chk, report, state, rehearsed, judge="independent", prior_state=prior)
 
 
 @mcp.tool()
@@ -547,8 +584,10 @@ def submit_judgment(check_id: str, verdicts: list[dict]) -> dict:
 
     if chk.awaiting == "judgment":
         report = _report_from_verdicts(chk, verdicts)
+        uid = _make_identity().user_id()
+        prior = _make_store().get(user_id=uid, concept_id=chk.concept.id)
         state, rehearsed = loop_ops.record_review(
-            concept=chk.concept, user_id=_make_identity().user_id(),
+            concept=chk.concept, user_id=uid,
             explanation=chk.pending_text, report=report, store=_make_store(),
         )
         chk.transfer_available = report.understanding_level >= loop_ops.TRANSFER_GATE
@@ -559,7 +598,7 @@ def submit_judgment(check_id: str, verdicts: list[dict]) -> dict:
         _log_event(concept=chk.concept, kind="explain", score=report.understanding_level,
                    missed=missed, explanation=chk.pending_text, rehearsed=rehearsed,
                    judge="host")
-        return _review_response(chk, report, state, rehearsed, judge="host")
+        return _review_response(chk, report, state, rehearsed, judge="host", prior_state=prior)
 
     if chk.awaiting == "transfer_judgment":
         rubric = chk.probe.rubric
@@ -577,9 +616,9 @@ def submit_judgment(check_id: str, verdicts: list[dict]) -> dict:
             user_answer=chk.pending_text, transfer_score=total / len(rubric),
             met=met, missed=missed_points,
         )
-        loop_ops.record_transfer_result(
-            result=result, user_id=_make_identity().user_id(), store=_make_store(),
-        )
+        uid = _make_identity().user_id()
+        prior = _make_store().get(user_id=uid, concept_id=chk.concept.id)
+        loop_ops.record_transfer_result(result=result, user_id=uid, store=_make_store())
         chk.awaiting = None
         _log_event(concept=chk.concept, kind="transfer", score=result.transfer_score,
                    missed=[m.criterion for m in result.missed], explanation=chk.pending_text,
@@ -592,6 +631,8 @@ def submit_judgment(check_id: str, verdicts: list[dict]) -> dict:
             "judge": "host-verified",
             "instruction": _NO_ANSWER,
         }
+        resp.update(_progress_extras(
+            prior_state=prior, new_state=_make_store().get(user_id=uid, concept_id=chk.concept.id)))
         if failures:
             resp["evidence_failures"] = failures
         if (result.transfer_score < loop_ops.REMEDIATION_GATE
@@ -648,8 +689,10 @@ def _finish_rapid(chk: _Check, *, judge: str) -> dict:
         understanding_level=total / len(rubric),
         correct_points=correct, gaps=gaps, evidence_failures=failures,
     )
+    uid = _make_identity().user_id()
+    prior = _make_store().get(user_id=uid, concept_id=chk.concept.id)
     state, rehearsed = loop_ops.record_review(
-        concept=chk.concept, user_id=_make_identity().user_id(),
+        concept=chk.concept, user_id=uid,
         explanation=report.user_explanation, report=report, store=_make_store(),
     )
     chk.transfer_available = report.understanding_level >= loop_ops.TRANSFER_GATE
@@ -660,9 +703,8 @@ def _finish_rapid(chk: _Check, *, judge: str) -> dict:
     _log_event(concept=chk.concept, kind="explain", score=report.understanding_level,
                missed=missed, explanation=report.user_explanation, rehearsed=rehearsed,
                judge=judge, mode="rapid")
-    resp = _review_response(chk, report, state, rehearsed, judge=judge)
+    resp = _review_response(chk, report, state, rehearsed, judge=judge, prior_state=prior)
     resp["done"] = True
-    resp["streak_days"] = derive_profile(_make_learner_log().events()).get("streak_days", 0)
     return resp
 
 
@@ -846,8 +888,10 @@ def score_transfer(check_id: str, answer: str) -> dict:
             ),
         }
 
+    uid = _make_identity().user_id()
+    prior = _make_store().get(user_id=uid, concept_id=chk.concept.id)
     result = loop_ops.score_transfer(
-        probe=chk.probe, user_id=_make_identity().user_id(), user_answer=answer,
+        probe=chk.probe, user_id=uid, user_answer=answer,
         engine=_make_transfer(), store=_make_store(),
     )
     _log_event(concept=chk.concept, kind="transfer", score=result.transfer_score,
@@ -859,13 +903,16 @@ def score_transfer(check_id: str, answer: str) -> dict:
             concept=chk.concept, passages=chk.passages, missed=result.missed
         )
         remediation_question = chk.probe.question
-    return {
+    resp = {
         "transfer_score": round(result.transfer_score, 2),
         "met": result.met,
         "missed": [{"criterion": m.criterion, "source": m.citation.doc_label} for m in result.missed],
         "remediation_question": remediation_question,
         "instruction": _NO_ANSWER,
     }
+    resp.update(_progress_extras(
+        prior_state=prior, new_state=_make_store().get(user_id=uid, concept_id=chk.concept.id)))
+    return resp
 
 
 @mcp.tool()
@@ -944,7 +991,27 @@ def journey(concept: str) -> dict:
     headline = None
     if len(explains) >= 2:
         headline = f"{explains[0].score:.0%} on {explains[0].at:%Y-%m-%d} -> {explains[-1].score:.0%} today's latest"
-    return {"concept": concept, "attempts": attempts, "headline": headline}
+
+    # The journey card: a shareable artifact of the 0-to-90 arc. Growth and consistency only,
+    # never a rank against anyone (Decision 8).
+    card = None
+    c = _make_concept_store().find_by_label(events[0].concept_label)
+    if explains and c is not None:
+        now = datetime.now(timezone.utc)
+        st = _make_store().get(user_id=_make_identity().user_id(), concept_id=c.id)
+        level = _status_of_state(st, now=now)
+        strength = ""
+        if st and st.next_due_at and st.last_reviewed_at:
+            days = (st.next_due_at - st.last_reviewed_at).total_seconds() / 86400
+            strength = f" | memory: {days:.0f} days"
+        arc = (f"{explains[0].score:.0%} -> {explains[-1].score:.0%}" if len(explains) >= 2
+               else f"{explains[0].score:.0%}")
+        streak = streak_days(_make_learner_log().events())
+        card = (f"**{c.label}** ({c.depth})\n"
+                f"{arc} across {len(explains)} attempt(s) | level: {level}{strength}\n"
+                f"day streak: {streak} | Feynman-Loop")
+    return {"concept": concept, "attempts": attempts, "headline": headline, "card": card,
+            "instruction": "If the learner asks to share or celebrate progress, render the card as a quote block."}
 
 
 if __name__ == "__main__":

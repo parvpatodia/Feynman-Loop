@@ -318,6 +318,8 @@ def test_zero_key_full_flow(zero_key):
         {"index": 0, "status": "met", "evidence": "start from the output layer"}])
     assert scored["transfer_score"] == 1.0
     assert scored["judge"] == "host-verified"
+    assert "First transfer passed" in scored["milestones"]
+    assert scored["streak_days"] >= 1
 
     # the ledger is identical in kind to API mode, with provenance recorded
     srv._CHECKS.clear()                              # restart
@@ -425,6 +427,8 @@ def test_rapid_volley_independent(monkeypatch):
     assert done["done"] is True
     assert done["understanding_level"] == 0.5          # (1 + 0)/2, computed in code, not vibes
     assert done["streak_days"] >= 1                    # today's rep counts toward the streak
+    assert "First check complete" in done["milestones"]  # the rep that unlocked it shows it
+    assert done["level"].startswith("untested -> ")      # territory gained, visibly
     assert "Try again" in done["gaps"][0]["probe"]     # a probe, never the answer
     assert srv._make_learner_log().events()[-1].mode == "rapid"
 

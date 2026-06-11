@@ -243,6 +243,23 @@ of what you know. Fix: the ledger renders as a knowledge graph where node status
   Web binds localhost only (single-user by design; multi-user = contribution path).
 - 90 tests green. CONTRIBUTING.md seeds the community work.
 
+**Decision 24 — the visible-progression layer (2026-06-10).**
+Parv: streak alone isn't enough; without game elements it feels like "just a Claude chat".
+Agreed on the diagnosis, held the line on the boundary: gamify SHOWING UP and TERRITORY, never
+the score (score-attached rewards invite gaming the judge, the one thing the moat forbids;
+Duolingo's leagues are the cautionary tale). Built, all computed in code from the ledger, no
+model calls, nothing gameable:
+- Level-ups on every result: the vault statuses (untested/fragile/consolidating/strong) are
+  surfaced as transitions ("fragile -> consolidating") on explains AND transfers (a failed
+  transfer visibly drops the level; honesty cuts both ways).
+- Milestones as a pure function of the event log (no award table): first check, first transfer
+  PASSED, 5/10/25 concepts, streak crossings (re-armable after a lapse, deliberately), comeback
+  after 7+ days. Returned once, on the rep that unlocked them.
+- Journey card on journey(): shareable growth artifact (arc, level, memory strength, streak).
+  Growth vs yourself only; no ranks against anyone.
+- Notification already carries "Day N:" when a streak is alive.
+Rejected again, on the record: XP, points, leagues, leaderboards.
+
 **Decision 23 — rapid mode: the volley (2026-06-10).**
 Driven by Parv's FIRST real usage session (Gradient Descent: 8% -> 58%): "no one will write
 paragraphs; make it quicker and engaging or no one will use it."
