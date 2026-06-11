@@ -14,7 +14,6 @@ from feynman_loop.models import (
     TransferResult,
 )
 from feynman_loop.retrieval.base import RetrievedPassage
-from feynman_loop.storage import JsonUserStateStore
 
 
 class _FakeRetriever:
@@ -69,11 +68,8 @@ class _FakeRelated:
 
 @pytest.fixture(autouse=True)
 def fakes(monkeypatch, tmp_path):
-    from feynman_loop.learner import JsonLearnerLog
-    from feynman_loop.storage import JsonConceptStore, JsonIdentity
-
-    # WHY canonical filenames + _ROOT patch: the vault/knowledge map reads the same ledger files
-    # by their real names, so aligning them lets the graph be tested through the server module.
+    # WHY only _ROOT is patched for storage: the default factories route through db.stores_for,
+    # so pointing _ROOT at tmp gives the real SQLite ledger, exercised exactly as in production.
     monkeypatch.setattr(srv, "_ROOT", tmp_path)
     monkeypatch.delenv("FEYNMAN_VAULT", raising=False)
     monkeypatch.setattr(srv, "_make_retriever", lambda: _FakeRetriever())
@@ -81,11 +77,7 @@ def fakes(monkeypatch, tmp_path):
     monkeypatch.setattr(srv, "_make_transfer", lambda: _FakeTransfer())
     monkeypatch.setattr(srv, "_make_expander", lambda: _FakeExpander())
     monkeypatch.setattr(srv, "_make_related", lambda: _FakeRelated())
-    monkeypatch.setattr(srv, "_make_store", lambda: JsonUserStateStore(tmp_path / "feynman_state.json"))
-    monkeypatch.setattr(srv, "_make_concept_store", lambda: JsonConceptStore(tmp_path / "feynman_concepts.json"))
-    monkeypatch.setattr(srv, "_make_learner_log", lambda: JsonLearnerLog(tmp_path / "feynman_learner.json"))
     monkeypatch.setattr(srv, "_make_tagger", lambda: _FakeTagger())
-    monkeypatch.setattr(srv, "_make_identity", lambda: JsonIdentity(tmp_path / "feynman_user.json"))
     srv._CHECKS.clear()
 
 

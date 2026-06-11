@@ -15,8 +15,16 @@ Use an isolated virtualenv. Do not install into a global or conda environment, t
 ```
 python3 -m venv .venv
 .venv/bin/python -m pip install -U pip
-.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m pip install -e .
+.venv/bin/feynman-loop init        # configures the MCP server + Claude Code hooks in one step
 ```
+
+`init` also prints the config snippet for any other MCP host (ChatGPT Desktop, Gemini, Cursor).
+
+Storage: one local SQLite ledger plus a markdown knowledge-graph vault, at `$FEYNMAN_HOME`
+(default `~/.feynman-loop`). Your data never leaves your machine except for judging calls.
+Cost control: set `FEYNMAN_JUDGE_MODEL` (default `claude-opus-4-8`; `claude-sonnet-4-6` is ~3x
+cheaper) and `FEYNMAN_FAST_MODEL` (default `claude-haiku-4-5`).
 
 ## Test
 

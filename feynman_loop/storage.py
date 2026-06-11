@@ -13,9 +13,17 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Protocol
 from uuid import UUID, uuid4
 
 from feynman_loop.models import Concept, UserState
+
+
+class UserStateStore(Protocol):
+    """What the loop needs from a state store; JSON and SQLite backends both satisfy it."""
+
+    def get(self, *, user_id: UUID, concept_id: UUID) -> UserState | None: ...
+    def put(self, state: UserState) -> None: ...
 
 
 class JsonUserStateStore:
@@ -51,7 +59,13 @@ class JsonIdentity:
         if self._path.exists():
             return UUID(json.loads(self._path.read_text())["user_id"])
         uid = uuid4()
-        self._path.write_text(json.dumps({"user_id": str(uid)}))
+        try:
+            # WHY: 'x' is atomic-create. If two processes race the very first launch, exactly one
+            # wins and the other reads the winner's id, so the identity can never fork.
+            with open(self._path, "x") as f:
+                json.dump({"user_id": str(uid)}, f)
+        except FileExistsError:
+            return UUID(json.loads(self._path.read_text())["user_id"])
         return uid
 
 

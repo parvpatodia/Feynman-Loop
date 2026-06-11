@@ -14,18 +14,18 @@ from __future__ import annotations
 import os
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
 import feynman_loop.loop as loop_ops
+from feynman_loop import paths
+from feynman_loop.db import stores_for
 from feynman_loop.judge.claude_judge import ClaudeJudge
-from feynman_loop.learner import ClaudeMissTagger, JsonLearnerLog, ReviewEvent, derive_profile
+from feynman_loop.learner import ClaudeMissTagger, ReviewEvent, derive_profile
 from feynman_loop.models import MODEL_FALLBACK_LABEL, Concept, SourceRef, SourceTier
 from feynman_loop.relations import ClaudeRelatedConcepts
 from feynman_loop.retrieval.chroma_store import ChromaRetriever, sentence_transformer_embedder
 from feynman_loop.retrieval.query_expansion import ClaudeQueryExpander
-from feynman_loop.storage import JsonConceptStore, JsonIdentity, JsonUserStateStore
 from feynman_loop.transfer.claude_transfer import ClaudeTransfer
 from feynman_loop.vault import mermaid_map, sync_vault
 
@@ -38,9 +38,9 @@ _NO_ANSWER = (
     "the entire point is that they retrieve it themselves."
 )
 
-# WHY: absolute paths. Claude launches the server from an arbitrary cwd (often /), so relative
-# paths would fail to write. All ledger files anchor to the repo root (gitignored).
-_ROOT = Path(__file__).resolve().parent.parent
+# WHY: absolute, env-driven home (FEYNMAN_HOME, default ~/.feynman-loop). Claude launches the
+# server from an arbitrary cwd, and a pip-installed package must never write into site-packages.
+_ROOT = paths.home()
 
 
 # --- factories (tests override these to inject fakes) ---
@@ -62,16 +62,18 @@ def _make_expander():
     return ClaudeQueryExpander()
 
 
+# Storage goes through db.stores_for: one SQLite ledger (WAL) shared safely by every surface,
+# replacing the JSON files whose whole-file writes lost updates under concurrent processes.
 def _make_store():
-    return JsonUserStateStore(_ROOT / "feynman_state.json")
+    return stores_for(_ROOT).states
 
 
 def _make_concept_store():
-    return JsonConceptStore(_ROOT / "feynman_concepts.json")
+    return stores_for(_ROOT).concepts
 
 
 def _make_learner_log():
-    return JsonLearnerLog(_ROOT / "feynman_learner.json")
+    return stores_for(_ROOT).events
 
 
 def _make_tagger():
@@ -79,9 +81,9 @@ def _make_tagger():
 
 
 def _make_identity():
-    # WHY: a STABLE local identity. The previous per-process uuid orphaned the user's entire
-    # history on every server restart, which silently destroyed the memory-over-time moat.
-    return JsonIdentity(_ROOT / "feynman_user.json")
+    # WHY: a STABLE local identity. A per-process uuid would orphan the user's entire history
+    # on every server restart, silently destroying the memory-over-time moat.
+    return stores_for(_ROOT).identity
 
 
 def _make_related():
@@ -123,10 +125,12 @@ _CHECKS: dict[str, _Check] = {}
 
 
 @mcp.tool()
-def start_check(concept: str, source_text: str = "") -> dict:
+def start_check(concept: str, source_text: str = "", rebuild: bool = False) -> dict:
     """Start a Feynman-Loop check on a concept. Pass source_text = the relevant material already in
     context (code, a paper, notes) to ground the check in it; leave it empty to be tested from
     general knowledge. A concept the learner has checked before continues its existing history.
+    rebuild=True re-derives the scoring rubric (use when a rubric seems off or stale); without a
+    new source the rebuilt rubric comes from general knowledge and is flagged as such.
     Returns a check_id for the other tools."""
     existing = _make_concept_store().find_by_label(concept)
 
@@ -146,7 +150,7 @@ def start_check(concept: str, source_text: str = "") -> dict:
         c = existing.model_copy(update={"source_ref": source_ref, "rubric": []}) if existing \
             else Concept(label=concept, source_ref=source_ref)
         loop_ops.build_concept_rubric(concept=c, retriever=retriever, judge=_make_judge())
-    elif existing and existing.rubric:
+    elif existing and existing.rubric and not rebuild:
         # WHY: returning concept, no new source -> reuse the persisted rubric as-is. Same id, same
         # history, and start is instant (no model call). NOTE: the vector index is in-memory, so a
         # previously-grounded concept can't re-retrieve after a restart; the rubric (built from the
@@ -161,7 +165,10 @@ def start_check(concept: str, source_text: str = "") -> dict:
             doc_label=MODEL_FALLBACK_LABEL,
             retrieval_query=concept,
         )
-        c = Concept(label=concept, source_ref=source_ref)
+        # WHY on rebuild: keep the concept id (history stays attached) but flip the source tier to
+        # model-fallback, because a no-source rebuild cannot honestly claim the old grounding.
+        c = existing.model_copy(update={"rubric": [], "source_ref": source_ref}) if existing \
+            else Concept(label=concept, source_ref=source_ref)
         loop_ops.build_concept_rubric(concept=c, retriever=retriever, judge=_make_judge())
 
     if existing is None and not c.related:

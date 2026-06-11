@@ -16,7 +16,7 @@ from abc import ABC, abstractmethod
 from anthropic import Anthropic
 from pydantic import BaseModel
 
-_MODEL = "claude-haiku-4-5"
+from feynman_loop.providers import fast_model
 
 _SYSTEM = """Given the name of a concept, write ONE concise retrieval query that captures the
 concept's key terms and meaning, for finding the passage that explains it in a document via
@@ -35,9 +35,9 @@ class _Expansion(BaseModel):
 
 
 class ClaudeQueryExpander(QueryExpander):
-    def __init__(self, *, client: Anthropic | None = None, model: str = _MODEL) -> None:
+    def __init__(self, *, client: Anthropic | None = None, model: str | None = None) -> None:
         self._client = client or Anthropic()
-        self._model = model
+        self._model = model or fast_model()
 
     def expand(self, *, concept_label: str) -> str:
         draft: _Expansion = self._client.messages.parse(

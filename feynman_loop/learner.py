@@ -123,9 +123,11 @@ class _TagDraft(BaseModel):
 
 
 class ClaudeMissTagger:
-    def __init__(self, *, client: Anthropic | None = None, model: str = "claude-haiku-4-5") -> None:
+    def __init__(self, *, client: Anthropic | None = None, model: str | None = None) -> None:
+        from feynman_loop.providers import fast_model  # local import: avoid cycle at module load
+
         self._client = client or Anthropic()
-        self._model = model
+        self._model = model or fast_model()
 
     def tag(self, missed: list[str]) -> list[str]:
         if not missed:

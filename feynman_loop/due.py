@@ -18,30 +18,25 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from feynman_loop.learner import JsonLearnerLog, derive_profile
-from feynman_loop.storage import JsonConceptStore, JsonIdentity, JsonUserStateStore
-
-_ROOT = Path(__file__).resolve().parent.parent
-
-
-def _home() -> Path:
-    return Path(os.environ.get("FEYNMAN_HOME", _ROOT))
+from feynman_loop import paths
+from feynman_loop.db import stores_for
+from feynman_loop.learner import derive_profile
 
 
 def collect(root: Path | None = None, now: datetime | None = None) -> dict:
     """Aggregate the ledger: concepts due now, pending shipped-work nudges, learner profile."""
-    root = root or _home()
+    root = root or paths.home()
     now = now or datetime.now(timezone.utc)
-    uid = JsonIdentity(root / "feynman_user.json").user_id()
-    store = JsonUserStateStore(root / "feynman_state.json")
+    stores = stores_for(root)
+    uid = stores.identity.user_id()
+    store = stores.states
 
     due, tracked = [], 0
-    for c in JsonConceptStore(root / "feynman_concepts.json").all():
+    for c in stores.concepts.all():
         st = store.get(user_id=uid, concept_id=c.id)
         if st is None:
             continue
@@ -65,7 +60,7 @@ def collect(root: Path | None = None, now: datetime | None = None) -> dict:
             pending = []
         pending_path.unlink(missing_ok=True)
 
-    profile = derive_profile(JsonLearnerLog(root / "feynman_learner.json").events())
+    profile = derive_profile(stores.events.events())
     return {"due": due, "pending": pending, "tracked": tracked, "profile": profile}
 
 

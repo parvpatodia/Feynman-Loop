@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "feynman-loop"
+version = "0.1.0"
+description = "The understanding layer for AI workflows: explain it back, get judged against your own source, keep a verified knowledge graph of what you actually know."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+dependencies = [
+  "pydantic>=2.0",
+  "chromadb>=0.4",
+  "sentence-transformers>=2.2",
+  "anthropic>=0.39",
+  "fastapi>=0.110",
+  "uvicorn>=0.27",
+  "python-multipart>=0.0.9",
+  "pypdf>=4.0",
+  "mcp>=1.0",
+]
+
+[project.scripts]
+feynman-loop = "feynman_loop.app_cli:main"
+
+[tool.setuptools.packages.find]
+include = ["feynman_loop*"]
+
+[tool.setuptools.package-data]
+"feynman_loop.web" = ["static/*"]
+"feynman_loop.assets" = ["hooks/*.py"]

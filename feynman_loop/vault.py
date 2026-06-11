@@ -17,8 +17,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from feynman_loop.learner import JsonLearnerLog
-from feynman_loop.storage import JsonConceptStore, JsonIdentity, JsonUserStateStore
+from feynman_loop.db import stores_for
 
 _STATUS_ORDER = ["due", "fragile", "consolidating", "strong", "untested"]
 
@@ -44,12 +43,13 @@ def status_of(*, interval_days: float | None, due_now: bool, reviewed: bool) -> 
 def collect_graph(root: Path, now: datetime | None = None) -> list[dict]:
     """One row per tracked concept: status, scores, neighbours, journey, latest words."""
     now = now or datetime.now(timezone.utc)
-    uid = JsonIdentity(root / "feynman_user.json").user_id()
-    states = JsonUserStateStore(root / "feynman_state.json")
-    events = JsonLearnerLog(root / "feynman_learner.json").events()
+    stores = stores_for(root)
+    uid = stores.identity.user_id()
+    states = stores.states
+    events = stores.events.events()
 
     rows: list[dict] = []
-    for c in JsonConceptStore(root / "feynman_concepts.json").all():
+    for c in stores.concepts.all():
         st = states.get(user_id=uid, concept_id=c.id)
         interval_days = None
         due_now = False

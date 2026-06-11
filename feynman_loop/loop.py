@@ -15,7 +15,7 @@ from feynman_loop.judge.base import Judge
 from feynman_loop.models import Concept, GapReport, RubricPoint, TransferProbe, TransferResult, UserState
 from feynman_loop.retrieval.base import Retriever
 from feynman_loop.scheduling import gated_next_due
-from feynman_loop.storage import JsonUserStateStore
+from feynman_loop.storage import UserStateStore
 from feynman_loop.transfer.base import TransferEngine
 
 # WHY: don't probe application until the baseline explanation is solid; testing transfer on
@@ -62,7 +62,7 @@ def run_review(
     user_id: UUID,
     explanation: str,
     judge: Judge,
-    store: JsonUserStateStore | None = None,
+    store: UserStateStore | None = None,
     now: datetime | None = None,
 ) -> tuple[GapReport, UserState, bool]:  # (report, state, rehearsed)
     now = now or datetime.now(timezone.utc)
@@ -118,7 +118,7 @@ def score_transfer(
     user_id: UUID,
     user_answer: str,
     engine: TransferEngine,
-    store: JsonUserStateStore | None = None,
+    store: UserStateStore | None = None,
     now: datetime | None = None,
 ) -> TransferResult:
     """Score the answer against the grounded rubric, record transfer_level, and pull the concept

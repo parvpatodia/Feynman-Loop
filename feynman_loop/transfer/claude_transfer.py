@@ -19,10 +19,9 @@ from feynman_loop.models import (
     TransferProbe,
     TransferResult,
 )
+from feynman_loop.providers import judge_model
 from feynman_loop.retrieval.base import RetrievedPassage
 from feynman_loop.transfer.base import TransferEngine
-
-_MODEL = "claude-opus-4-8"
 
 _GEN_SYSTEM = """You design a TRANSFER task for one concept, to test whether the learner can
 APPLY it to a situation the source does not spell out, not merely restate the definition.
@@ -81,9 +80,9 @@ class _ScoreDraft(BaseModel):
 
 
 class ClaudeTransfer(TransferEngine):
-    def __init__(self, *, client: Anthropic | None = None, model: str = _MODEL) -> None:
+    def __init__(self, *, client: Anthropic | None = None, model: str | None = None) -> None:
         self._client = client or Anthropic()
-        self._model = model
+        self._model = model or judge_model()  # env-configurable cost/accuracy point
 
     def generate_probe(
         self, *, concept: Concept, passages: list[RetrievedPassage]

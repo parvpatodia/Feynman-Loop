@@ -23,9 +23,8 @@ from pydantic import BaseModel
 
 from feynman_loop.judge.base import Judge
 from feynman_loop.models import MODEL_FALLBACK_LABEL, Citation, Concept, Gap, GapReport, RubricPoint
+from feynman_loop.providers import judge_model
 from feynman_loop.retrieval.base import RetrievedPassage
-
-_MODEL = "claude-opus-4-8"
 
 _RUBRIC_SYSTEM = """List the key points a complete, correct explanation of the concept must
 contain, based ONLY on the source passages. Each point is one checkable idea (the essential
@@ -77,9 +76,9 @@ _STATUS_VALUE = {"met": 1.0, "partial": 0.5, "missed": 0.0}
 
 
 class ClaudeJudge(Judge):
-    def __init__(self, *, client: Anthropic | None = None, model: str = _MODEL) -> None:
+    def __init__(self, *, client: Anthropic | None = None, model: str | None = None) -> None:
         self._client = client or Anthropic()
-        self._model = model
+        self._model = model or judge_model()  # env-configurable cost/accuracy point
 
     def build_rubric(
         self, *, concept: Concept, passages: list[RetrievedPassage]

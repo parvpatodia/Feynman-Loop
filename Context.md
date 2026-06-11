@@ -228,6 +228,21 @@ of what you know. Fix: the ledger renders as a knowledge graph where node status
   renders the map in the chat window; frontier (untracked related) shown as circles.
 - 79 tests green.
 
+**Decision 19 — hardening + portability (2026-06-10, ratified "go").**
+- Storage: SQLite (WAL) replaces the JSON ledger (`db.py`); fixes live concurrent-write races
+  across Desktop MCP + terminal MCP + web. One `stores_for(root)` chokepoint for every surface;
+  one-time JSON migration (imported files renamed `.imported`). Identity creation is atomic.
+- Paths: `$FEYNMAN_HOME` (default `~/.feynman-loop`), never package-relative (pip-install safe).
+  Parv's machine: everything aligned on `/Users/parvpatodia/Feynman-Loop`; real ledger migrated.
+- Models configurable: `FEYNMAN_JUDGE_MODEL` / `FEYNMAN_FAST_MODEL` (providers.py); OpenAI and
+  Gemini judges are seeded as good-first-issues behind the existing Judge/TransferEngine seams.
+- `start_check(rebuild=True)` re-derives a stale rubric (no-source rebuild flips tier to
+  model-fallback, honestly).
+- Packaging: pyproject + `feynman-loop` console command (init/due/check/web/mcp); hook scripts
+  ship as package assets (repo hooks/ are shims); `init` does the whole setup non-destructively.
+  Web binds localhost only (single-user by design; multi-user = contribution path).
+- 90 tests green. CONTRIBUTING.md seeds the community work.
+
 **Distribution model (analysis, pending Parv's ratification):** free = local-first open source,
 bring-your-own-key; no central server (private + zero marginal cost + nothing to scale or breach).
 Leaderboard: rank-based contradicts Decision 8 (gamification) — proposed alternative is shareable

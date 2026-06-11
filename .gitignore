@@ -21,7 +21,11 @@ feynman_concepts.json
 feynman_learner.json
 feynman_user.json
 feynman_pending.json
+feynman.db
+feynman.db-*
+feynman_*.json.imported
 vault/
+*.egg-info/
 
 # OS
 .DS_Store

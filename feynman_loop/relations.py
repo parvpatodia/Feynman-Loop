@@ -10,7 +10,7 @@ from __future__ import annotations
 from anthropic import Anthropic
 from pydantic import BaseModel
 
-_MODEL = "claude-haiku-4-5"
+from feynman_loop.providers import fast_model
 
 _SYSTEM = """Given a concept name, list 3 to 6 closely related concepts a learner should also
 understand: direct prerequisites and immediate siblings. Short canonical names only (e.g.
@@ -22,9 +22,9 @@ class _Related(BaseModel):
 
 
 class ClaudeRelatedConcepts:
-    def __init__(self, *, client: Anthropic | None = None, model: str = _MODEL) -> None:
+    def __init__(self, *, client: Anthropic | None = None, model: str | None = None) -> None:
         self._client = client or Anthropic()
-        self._model = model
+        self._model = model or fast_model()
 
     def related_to(self, concept_label: str) -> list[str]:
         draft: _Related = self._client.messages.parse(

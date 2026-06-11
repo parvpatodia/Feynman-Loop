@@ -34,17 +34,18 @@ from feynman_loop.models import (
     SourceTier,
     TransferProbe,
 )
-from feynman_loop.learner import ClaudeMissTagger, JsonLearnerLog, ReviewEvent
+from feynman_loop import paths
+from feynman_loop.db import stores_for
+from feynman_loop.learner import ClaudeMissTagger, ReviewEvent
 from feynman_loop.relations import ClaudeRelatedConcepts
 from feynman_loop.retrieval.chroma_store import ChromaRetriever, sentence_transformer_embedder
 from feynman_loop.retrieval.query_expansion import ClaudeQueryExpander
 from feynman_loop.sources import extract_text
-from feynman_loop.storage import JsonConceptStore, JsonIdentity, JsonUserStateStore
 from feynman_loop.transfer.claude_transfer import ClaudeTransfer
 from feynman_loop.vault import sync_vault
 
 _STATIC = Path(__file__).parent / "static"
-_ROOT = Path(__file__).resolve().parent.parent.parent  # repo root; ledger files anchor here
+_ROOT = paths.home()  # env-driven (FEYNMAN_HOME), never the package location
 
 
 def _clean(text: str) -> str:
@@ -68,7 +69,7 @@ def _make_transfer():
 
 
 def _make_store():
-    return JsonUserStateStore(_ROOT / "feynman_state.json")
+    return stores_for(_ROOT).states
 
 
 def _make_expander():
@@ -76,11 +77,11 @@ def _make_expander():
 
 
 def _make_concept_store():
-    return JsonConceptStore(_ROOT / "feynman_concepts.json")
+    return stores_for(_ROOT).concepts
 
 
 def _make_learner_log():
-    return JsonLearnerLog(_ROOT / "feynman_learner.json")
+    return stores_for(_ROOT).events
 
 
 def _make_tagger():
@@ -90,7 +91,7 @@ def _make_tagger():
 def _make_identity():
     # WHY: one stable identity shared with the MCP server, so web and MCP write the SAME
     # understanding ledger instead of forking per-session users.
-    return JsonIdentity(_ROOT / "feynman_user.json")
+    return stores_for(_ROOT).identity
 
 
 def _make_related():
