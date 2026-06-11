@@ -84,6 +84,14 @@ def test_migration_imports_legacy_json_once(tmp_path):
     assert len(again.events.events()) == 1
 
 
+def test_ledger_file_is_owner_only(tmp_path):
+    import os
+
+    db = tmp_path / "feynman.db"
+    SqliteUserStateStore(db)
+    assert os.stat(db).st_mode & 0o077 == 0  # personal learning data: no group/other access
+
+
 def test_judge_model_env_override(monkeypatch):
     from feynman_loop.judge.claude_judge import ClaudeJudge
     from feynman_loop.transfer.claude_transfer import ClaudeTransfer

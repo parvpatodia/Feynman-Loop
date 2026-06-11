@@ -94,6 +94,26 @@ def run_init(*, api_key: str | None = None) -> int:
 
     if key == "REPLACE_WITH_YOUR_ANTHROPIC_KEY":
         print("\nNOTE: no ANTHROPIC_API_KEY found; edit the Desktop config and set your key.")
+
+    # Obsidian: detect and guide; never auto-install third-party software (the security-conscious
+    # users this serves would rightly uninstall a tool that does).
+    vault = home / "vault"
+    if Path("/Applications/Obsidian.app").exists() or shutil.which("obsidian"):
+        print(f"\nObsidian detected: open this folder as a vault to see your knowledge graph:\n  {vault}")
+    else:
+        print(f"\nKnowledge graph: plain markdown at {vault} (works as-is)."
+              "\nFor the interactive graph view, install Obsidian (https://obsidian.md) and open that folder as a vault.")
+
+    # Pre-download the local embedding model so the first grounded check doesn't silently hang.
+    print("\nWarming the local embedding model (~80MB, one-time)...")
+    try:
+        from feynman_loop.retrieval.chroma_store import sentence_transformer_embedder
+
+        sentence_transformer_embedder()(["warm up"])
+        print("Embedding model ready.")
+    except Exception:
+        print("Could not pre-download (offline?); it will download on first grounded check.")
+
     print("\nFor any other MCP host (ChatGPT Desktop, Gemini, Cursor), add:\n"
           + generic_mcp_snippet(python=python, home=home))
     return 0

@@ -243,6 +243,22 @@ of what you know. Fix: the ledger renders as a knowledge graph where node status
   Web binds localhost only (single-user by design; multi-user = contribution path).
 - 90 tests green. CONTRIBUTING.md seeds the community work.
 
+**Decision 20 — explicit depth modes + safety pass (2026-06-10).**
+- DEPTH is user-set, never inferred (constitution: target level is set by the user; inferring
+  depth from explanation style would lower the bar for beginners exactly when it should hold).
+  `Concept.depth`: overview | working | expert (default working). Depth shapes the RUBRIC
+  (criteria count + scope per `_DEPTH_SPECS` in the judge); the scorer is unchanged. Exposed in
+  `start_check(depth=...)`, web (select in UI), persisted, shown in vault frontmatter. Changing
+  depth on a known concept = rubric rebuild (scores across depths are not comparable). Later:
+  the learner profile may SUGGEST a depth change, openly.
+- Obsidian: detect-and-guide in `init`, explicitly NOT auto-installed (installing third-party
+  apps is a security smell the target community would reject). `init` also pre-warms the
+  embedding model so a new user's first grounded check doesn't hang.
+- Safety: ledger db + identity file chmod 0600 (personal learning data, owner-only); mermaid
+  labels escape double quotes (node-string breakout); concept labels whitespace-normalized at
+  intake (no whitespace forks). Privacy property confirmed: capture hook stores file NAMES and
+  line counts only, never code content. 95 tests green.
+
 **Distribution model (analysis, pending Parv's ratification):** free = local-first open source,
 bring-your-own-key; no central server (private + zero marginal cost + nothing to scale or breach).
 Leaderboard: rank-based contradicts Decision 8 (gamification) — proposed alternative is shareable

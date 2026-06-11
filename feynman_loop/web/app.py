@@ -137,6 +137,7 @@ _SESSIONS: dict[str, _Session] = {}
 class StartRequest(BaseModel):
     source_text: str = ""  # optional; empty -> tier-3 (no source, judged on model knowledge)
     concept_label: str
+    depth: str = "working"  # overview | working | expert (the bar the rubric is built to)
 
 
 class StartResponse(BaseModel):
@@ -201,8 +202,12 @@ def _session(sid: str) -> _Session:
     return s
 
 
-def _start_session(*, source_text: str, concept_label: str) -> StartResponse:
+def _start_session(*, source_text: str, concept_label: str, depth: str = "working") -> StartResponse:
+    concept_label = " ".join(concept_label.split())  # one concept per label, however it's typed
     existing = _make_concept_store().find_by_label(concept_label)
+    requested_depth = depth if depth in ("overview", "working", "expert") \
+        else (existing.depth if existing else "working")
+    depth_changed = existing is not None and requested_depth != existing.depth
 
     if source_text and source_text.strip():
         # grounded path: ingest the source, derive the retrieval query from the concept
@@ -217,10 +222,10 @@ def _start_session(*, source_text: str, concept_label: str) -> StartResponse:
             retrieval_query=_make_expander().expand(concept_label=concept_label),
         )
         # WHY: keep the existing concept id so the history stays attached to one concept
-        concept = existing.model_copy(update={"source_ref": source_ref, "rubric": []}) if existing \
-            else Concept(label=concept_label, source_ref=source_ref)
+        concept = existing.model_copy(update={"source_ref": source_ref, "rubric": [], "depth": requested_depth}) \
+            if existing else Concept(label=concept_label, source_ref=source_ref, depth=requested_depth)
         build_concept_rubric(concept=concept, retriever=retriever, judge=_make_judge())
-    elif existing and existing.rubric:
+    elif existing and existing.rubric and not depth_changed:
         # returning concept, no new source -> reuse the persisted rubric (instant start, same history)
         retriever = None
         concept = existing
@@ -234,7 +239,8 @@ def _start_session(*, source_text: str, concept_label: str) -> StartResponse:
             doc_label=MODEL_FALLBACK_LABEL,
             retrieval_query=concept_label,
         )
-        concept = Concept(label=concept_label, source_ref=source_ref)
+        concept = existing.model_copy(update={"rubric": [], "source_ref": source_ref, "depth": requested_depth}) \
+            if existing else Concept(label=concept_label, source_ref=source_ref, depth=requested_depth)
         build_concept_rubric(concept=concept, retriever=retriever, judge=_make_judge())
 
     if existing is None and not concept.related:
@@ -252,19 +258,20 @@ def _start_session(*, source_text: str, concept_label: str) -> StartResponse:
 
 @app.post("/api/session", response_model=StartResponse)
 def start(req: StartRequest) -> StartResponse:
-    return _start_session(source_text=req.source_text, concept_label=req.concept_label)
+    return _start_session(source_text=req.source_text, concept_label=req.concept_label, depth=req.depth)
 
 
 @app.post("/api/session/upload", response_model=StartResponse)
 async def start_upload(
-    concept_label: str = Form(...), file: UploadFile = File(...)  # noqa: B008 (FastAPI idiom)
+    concept_label: str = Form(...), file: UploadFile = File(...),  # noqa: B008 (FastAPI idiom)
+    depth: str = Form("working"),  # noqa: B008 (FastAPI idiom)
 ) -> StartResponse:
     data = await file.read()
     try:
         text = extract_text(filename=file.filename or "upload", data=data)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
-    return _start_session(source_text=text, concept_label=concept_label)
+    return _start_session(source_text=text, concept_label=concept_label, depth=depth)
 
 
 @app.post("/api/review", response_model=ReviewResponse)

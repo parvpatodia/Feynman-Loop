@@ -26,11 +26,22 @@ from feynman_loop.models import MODEL_FALLBACK_LABEL, Citation, Concept, Gap, Ga
 from feynman_loop.providers import judge_model
 from feynman_loop.retrieval.base import RetrievedPassage
 
+# WHY depth shapes the RUBRIC, not the scorer: the bar lives in what a complete explanation must
+# contain. The scorer stays identical; only the criteria change with the learner's stated target.
+_DEPTH_SPECS = {
+    "overview": ("3 to 5", "the big picture: what it is, why it matters, and the main moving "
+                 "parts. Do not require step-by-step internals or edge cases."),
+    "working": ("4 to 8", "the essential mechanism: what it is, how it works, and what it "
+                "connects to (not trivia)."),
+    "expert": ("6 to 10", "expert mastery: the precise mechanism step by step, boundary "
+               "conditions, failure modes, and distinctions from neighbouring concepts."),
+}
+
 _RUBRIC_SYSTEM = """List the key points a complete, correct explanation of the concept must
-contain, based ONLY on the source passages. Each point is one checkable idea (the essential
-mechanism, not trivia). Aim for 4-8 points. Ground every point in a passage: give the passage
-index and an exact quote. If a point cannot be grounded in a passage, leave it out. Use only the
-passages provided; never add outside knowledge."""
+contain, based ONLY on the source passages. Each point is one checkable idea. The learner's
+target depth is {depth}: cover {scope} Aim for {count} points. Ground every point in a passage:
+give the passage index and an exact quote. If a point cannot be grounded in a passage, leave it
+out. Use only the passages provided; never add outside knowledge."""
 
 _SCORE_SYSTEM = """Score a learner's explanation against a FIXED list of key points.
 
@@ -45,9 +56,10 @@ the missing idea WITHOUT revealing the answer. Judge only against the listed poi
 correct idea expressed in different words."""
 
 _RUBRIC_KNOWLEDGE_SYSTEM = """The learner gave NO source. List the key points a complete, correct
-explanation of the concept must contain, from YOUR OWN GENERAL KNOWLEDGE. 4-8 points, the
-essential mechanism, not trivia. For each point, put the criterion and a brief supporting fact in
-"quote"; set passage_index to 0 (unused here). Only include points you are confident are correct."""
+explanation of the concept must contain, from YOUR OWN GENERAL KNOWLEDGE. The learner's target
+depth is {depth}: cover {scope} Aim for {count} points. For each point, put the criterion and a
+brief supporting fact in "quote"; set passage_index to 0 (unused here). Only include points you
+are confident are correct."""
 
 
 class _RubricItem(BaseModel):
@@ -88,6 +100,7 @@ class ClaudeJudge(Judge):
             # model's own knowledge, flagged lower-confidence. Transfer stays the ungameable check.
             return self._build_rubric_from_knowledge(concept)
 
+        count, scope = _DEPTH_SPECS.get(concept.depth, _DEPTH_SPECS["working"])
         numbered = "\n\n".join(f"[{i}] {p.text}" for i, p in enumerate(passages))
         user_msg = f"Concept: {concept.label}\n\nSource passages:\n{numbered}"
 
@@ -95,7 +108,7 @@ class ClaudeJudge(Judge):
             model=self._model,
             max_tokens=16000,
             thinking={"type": "adaptive"},
-            system=_RUBRIC_SYSTEM,
+            system=_RUBRIC_SYSTEM.format(depth=concept.depth, scope=scope, count=count),
             messages=[{"role": "user", "content": user_msg}],
             output_format=_RubricDraft,
         ).parsed_output
@@ -117,11 +130,12 @@ class ClaudeJudge(Judge):
         return rubric
 
     def _build_rubric_from_knowledge(self, concept: Concept) -> list[RubricPoint]:
+        count, scope = _DEPTH_SPECS.get(concept.depth, _DEPTH_SPECS["working"])
         draft: _RubricDraft = self._client.messages.parse(
             model=self._model,
             max_tokens=16000,
             thinking={"type": "adaptive"},
-            system=_RUBRIC_KNOWLEDGE_SYSTEM,
+            system=_RUBRIC_KNOWLEDGE_SYSTEM.format(depth=concept.depth, scope=scope, count=count),
             messages=[{"role": "user", "content": f"Concept: {concept.label}"}],
             output_format=_RubricDraft,
         ).parsed_output

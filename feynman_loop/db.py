@@ -44,6 +44,12 @@ def _init_db(path: Path) -> None:
     with _connect(path) as conn:
         conn.execute("PRAGMA journal_mode=WAL")  # persistent once set; enables concurrent readers
         conn.executescript(_SCHEMA)
+    try:
+        # WHY: the ledger holds the user's own explanations (personal learning data); keep it
+        # owner-only on shared machines. Best-effort: not all filesystems support chmod.
+        path.chmod(0o600)
+    except OSError:
+        pass
 
 
 class SqliteUserStateStore:

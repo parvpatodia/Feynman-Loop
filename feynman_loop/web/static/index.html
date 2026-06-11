@@ -86,6 +86,11 @@
 
   label { display: block; font-size: 13px; color: var(--muted); margin: 14px 0 6px; font-weight: 500; }
   label:first-of-type { margin-top: 0; }
+  select {
+    width: 100%; background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 10px; padding: 11px 13px; font: inherit;
+  }
+  select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(70,201,176,0.16); }
   input[type="text"], input:not([type]), textarea {
     width: 100%; background: var(--panel-2); color: var(--text);
     border: 1px solid var(--border); border-radius: 10px; padding: 11px 13px;
@@ -171,6 +176,12 @@
       <input id="file" type="file" accept=".pdf,.txt" />
       <label for="concept">Concept you want to test yourself on</label>
       <input id="concept" type="text" placeholder="Backpropagation" />
+      <label for="depth">Depth you're aiming for</label>
+      <select id="depth">
+        <option value="overview">Overview: the big picture</option>
+        <option value="working" selected>Working: how it actually works</option>
+        <option value="expert">Expert: edge cases and failure modes too</option>
+      </select>
       <div class="row">
         <button id="startBtn" onclick="startSession()">Start</button>
         <span class="loading hidden" id="setupLoading">Preparing your check</span>
@@ -274,16 +285,18 @@ async function startSession() {
   document.getElementById("startBtn").disabled = true;
   show("setupLoading");
   try {
+    const depth = document.getElementById("depth").value;
     let data;
     if (file) {
       const fd = new FormData();
       fd.append("concept_label", concept);
+      fd.append("depth", depth);
       fd.append("file", file);
       const res = await fetch("/api/session/upload", { method: "POST", body: fd });
       if (!res.ok) { let d = res.statusText; try { d = (await res.json()).detail || d; } catch (e) {} throw new Error(d); }
       data = await res.json();
     } else {
-      data = await post("/api/session", { source_text: source, concept_label: concept });
+      data = await post("/api/session", { source_text: source, concept_label: concept, depth });
     }
     sessionId = data.session_id;
     document.getElementById("explainLabel").textContent = `Explain "${data.concept_label}" in your own words`;

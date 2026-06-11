@@ -9,11 +9,18 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
+from typing import Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
 from feynman_loop.models.gap_report import RubricPoint
+
+# The depth the learner is aiming for. EXPLICIT, never silently inferred: a beginner explains
+# shallowly because they are a beginner, not because they want shallow standards, so inferring
+# depth from style would lower the bar exactly when it should hold. The user sets the target
+# (per the constitution); the learner profile may SUGGEST a change, openly, later.
+Depth = Literal["overview", "working", "expert"]
 
 
 def _utcnow() -> datetime:
@@ -65,6 +72,9 @@ class Concept(BaseModel):
     # WHY: neighbouring concepts (prerequisites/siblings), fetched once at intake. These become the
     # edges of the knowledge graph; untracked neighbours render as the learner's frontier.
     related: list[str] = Field(default_factory=list)
+    # WHY: the depth the rubric is built to. Changing depth rebuilds the rubric (scores across
+    # depths are not comparable, so the change is explicit, never silent).
+    depth: Depth = "working"
     created_at: datetime = Field(default_factory=_utcnow)
 
     # NOTE: there is deliberately no goal_id here. Decision 11 moved the concept->goal tie into

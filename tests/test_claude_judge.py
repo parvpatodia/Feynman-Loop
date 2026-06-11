@@ -64,6 +64,22 @@ def test_build_rubric_grounds_points_in_real_passages():
     assert rubric[1].citation.doc_id == passages[1].doc_id
 
 
+def test_rubric_prompt_respects_depth():
+    draft = _RubricDraft(points=[_RubricItem(criterion="c", passage_index=0, quote="q")])
+
+    client = _FakeClient(rubric_draft=draft)
+    expert = _concept()
+    expert.depth = "expert"
+    ClaudeJudge(client=client).build_rubric(concept=expert, passages=_passages())
+    assert "failure modes" in client.messages.calls[0]["system"]   # expert bar
+
+    client2 = _FakeClient(rubric_draft=draft)
+    overview = _concept()
+    overview.depth = "overview"
+    ClaudeJudge(client=client2).build_rubric(concept=overview, passages=_passages())
+    assert "big picture" in client2.messages.calls[0]["system"]    # overview bar
+
+
 def test_build_rubric_from_knowledge_when_no_source():
     # tier-3: no passages -> build from model knowledge, flagged lower-confidence
     from feynman_loop.models import MODEL_FALLBACK_LABEL

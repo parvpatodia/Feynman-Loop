@@ -60,6 +60,7 @@ def collect_graph(root: Path, now: datetime | None = None) -> list[dict]:
         latest_words = next((e.explanation for e in reversed(mine) if e.kind == "explain" and e.explanation), "")
         rows.append({
             "label": c.label,
+            "depth": c.depth,
             "status": status_of(interval_days=interval_days, due_now=due_now, reviewed=st is not None),
             "understanding": round(st.understanding_level, 2) if st else None,
             "transfer": round(st.transfer_level, 2) if st and st.transfer_level is not None else None,
@@ -86,8 +87,8 @@ def sync_vault(root: Path, vault_dir: Path | None = None, now: datetime | None =
         transfer = f"{r['transfer']:.0%}" if r["transfer"] is not None else "untested"
         strength = r["memory_strength_days"] if r["memory_strength_days"] is not None else "n/a"
         body = (
-            f"---\nstatus: {r['status']}\nunderstanding: {understanding}\ntransfer: {transfer}\n"
-            f"memory_strength_days: {strength}\nnext_due: {r['next_due']}\n---\n\n"
+            f"---\nstatus: {r['status']}\ndepth: {r['depth']}\nunderstanding: {understanding}\n"
+            f"transfer: {transfer}\nmemory_strength_days: {strength}\nnext_due: {r['next_due']}\n---\n\n"
             f"# {r['label']}\n\n"
             f"## In my own words (latest)\n{words}\n\n"
             f"## Related\n{links}\n\n"
@@ -117,18 +118,22 @@ def mermaid_map(root: Path, now: datetime | None = None) -> str:
     def node_id(label: str) -> str:
         return "n_" + re.sub(r"\W", "_", label.strip().casefold())
 
+    def esc(label: str) -> str:
+        # WHY: a double quote in a label would break out of the mermaid node string
+        return label.replace('"', "'")
+
     lines = ["graph TD"]
     tracked = {r["label"].strip().casefold(): r for r in rows}
     ghosts: dict[str, str] = {}
     for r in rows:
         pct = f" {r['understanding']:.0%}" if r["understanding"] is not None else ""
-        lines.append(f'    {node_id(r["label"])}["{r["label"]}{pct} ({r["status"]})"]')
+        lines.append(f'    {node_id(r["label"])}["{esc(r["label"])}{pct} ({r["status"]})"]')
     for r in rows:
         for rel in r["related"]:
             rid = node_id(rel)
             if rel.strip().casefold() not in tracked and rid not in ghosts:
                 ghosts[rid] = rel
-                lines.append(f'    {rid}(("{rel}"))')  # frontier: known-unknown, not yet earned
+                lines.append(f'    {rid}(("{esc(rel)}"))')  # frontier: known-unknown, not yet earned
             lines.append(f"    {node_id(r['label'])} --- {rid}")
     lines.append("    classDef due fill:#7a3d2e,color:#fff")
     lines.append("    classDef fragile fill:#7a5c2e,color:#fff")

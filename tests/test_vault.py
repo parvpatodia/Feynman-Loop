@@ -42,6 +42,7 @@ def test_sync_vault_writes_markdown_with_wikilinks_and_index(tmp_path):
 
     note = (vault / "Backpropagation.md").read_text()
     assert "status: strong" in note
+    assert "depth: working" in note
     assert "understanding: 72%" in note
     assert "[[Chain Rule]]" in note
     assert "gradients flow backward" in note          # their own words, in the note
@@ -67,6 +68,14 @@ def test_mermaid_map_has_earned_nodes_frontier_and_edges(tmp_path):
 
 def test_mermaid_map_empty(tmp_path):
     assert mermaid_map(tmp_path) == ""
+
+
+def test_mermaid_escapes_double_quotes_in_labels(tmp_path):
+    _seed(tmp_path, 'The "Attention" Trick', interval_days=20, related=['Q"K Scores'])
+    m = mermaid_map(tmp_path, now=_NOW)
+    assert "The 'Attention' Trick" in m       # rendered with safe quotes
+    assert '"Attention"' not in m             # no raw double quotes inside node strings
+    assert "Q'K Scores" in m                  # frontier label escaped too
 
 
 def test_safe_name_strips_path_hostiles():

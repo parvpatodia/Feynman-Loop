@@ -64,6 +64,10 @@ class JsonIdentity:
             # wins and the other reads the winner's id, so the identity can never fork.
             with open(self._path, "x") as f:
                 json.dump({"user_id": str(uid)}, f)
+            try:
+                self._path.chmod(0o600)  # owner-only, like the rest of the ledger
+            except OSError:
+                pass
         except FileExistsError:
             return UUID(json.loads(self._path.read_text())["user_id"])
         return uid

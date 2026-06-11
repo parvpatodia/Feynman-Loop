@@ -153,6 +153,26 @@ def test_returning_concept_reuses_id_and_history():
     assert cid_a is not None
 
 
+def test_depth_persists_and_change_rebuilds():
+    a = srv.start_check("Backpropagation", depth="expert")
+    assert a["depth"] == "expert"
+    srv._CHECKS.clear()  # restart
+
+    b = srv.start_check("backpropagation")  # no depth given -> keeps the stored expert bar
+    assert b["depth"] == "expert" and b["returning_concept"] is True
+
+    c = srv.start_check("Backpropagation", depth="overview")  # explicit change -> rebuild
+    assert c["depth"] == "overview"
+    assert srv.start_check("Backpropagation", depth="bogus")["depth"] == "overview"  # invalid -> kept
+
+
+def test_concept_label_whitespace_is_normalized():
+    a = srv.start_check("  Backpropagation \n ")
+    assert a["concept"] == "Backpropagation"
+    b = srv.start_check("Backpropagation")
+    assert b["returning_concept"] is True  # one concept, not a whitespace fork
+
+
 def test_knowledge_map_renders_earned_nodes_and_frontier(tmp_path):
     started = srv.start_check("Backpropagation")
     srv.judge_explanation(started["check_id"], "it computes gradients via the chain rule")

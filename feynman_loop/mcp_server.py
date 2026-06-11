@@ -125,14 +125,20 @@ _CHECKS: dict[str, _Check] = {}
 
 
 @mcp.tool()
-def start_check(concept: str, source_text: str = "", rebuild: bool = False) -> dict:
+def start_check(concept: str, source_text: str = "", rebuild: bool = False, depth: str = "") -> dict:
     """Start a Feynman-Loop check on a concept. Pass source_text = the relevant material already in
     context (code, a paper, notes) to ground the check in it; leave it empty to be tested from
     general knowledge. A concept the learner has checked before continues its existing history.
-    rebuild=True re-derives the scoring rubric (use when a rubric seems off or stale); without a
-    new source the rebuilt rubric comes from general knowledge and is flagged as such.
+    depth sets the bar the learner is aiming for: "overview" (big picture), "working" (default;
+    the mechanism), or "expert" (boundary conditions and failure modes too). Changing depth on a
+    known concept rebuilds its rubric. rebuild=True re-derives the rubric (use when one seems off
+    or stale); without a new source the rebuilt rubric comes from general knowledge, flagged.
     Returns a check_id for the other tools."""
+    concept = " ".join(concept.split())  # normalize: "Backprop\n " and "backprop" are one concept
     existing = _make_concept_store().find_by_label(concept)
+    requested_depth = depth if depth in ("overview", "working", "expert") \
+        else (existing.depth if existing else "working")
+    depth_changed = existing is not None and requested_depth != existing.depth
 
     if source_text and source_text.strip():
         # new source provided -> (re)ground: ingest and rebuild the rubric against it
@@ -147,10 +153,10 @@ def start_check(concept: str, source_text: str = "", rebuild: bool = False) -> d
             retrieval_query=_make_expander().expand(concept_label=concept),
         )
         # WHY: keep the existing concept id so history/resurfacing stay attached
-        c = existing.model_copy(update={"source_ref": source_ref, "rubric": []}) if existing \
-            else Concept(label=concept, source_ref=source_ref)
+        c = existing.model_copy(update={"source_ref": source_ref, "rubric": [], "depth": requested_depth}) \
+            if existing else Concept(label=concept, source_ref=source_ref, depth=requested_depth)
         loop_ops.build_concept_rubric(concept=c, retriever=retriever, judge=_make_judge())
-    elif existing and existing.rubric and not rebuild:
+    elif existing and existing.rubric and not rebuild and not depth_changed:
         # WHY: returning concept, no new source -> reuse the persisted rubric as-is. Same id, same
         # history, and start is instant (no model call). NOTE: the vector index is in-memory, so a
         # previously-grounded concept can't re-retrieve after a restart; the rubric (built from the
@@ -167,8 +173,8 @@ def start_check(concept: str, source_text: str = "", rebuild: bool = False) -> d
         )
         # WHY on rebuild: keep the concept id (history stays attached) but flip the source tier to
         # model-fallback, because a no-source rebuild cannot honestly claim the old grounding.
-        c = existing.model_copy(update={"rubric": [], "source_ref": source_ref}) if existing \
-            else Concept(label=concept, source_ref=source_ref)
+        c = existing.model_copy(update={"rubric": [], "source_ref": source_ref, "depth": requested_depth}) \
+            if existing else Concept(label=concept, source_ref=source_ref, depth=requested_depth)
         loop_ops.build_concept_rubric(concept=c, retriever=retriever, judge=_make_judge())
 
     if existing is None and not c.related:
@@ -185,6 +191,7 @@ def start_check(concept: str, source_text: str = "", rebuild: bool = False) -> d
     return {
         "check_id": check_id,
         "concept": c.label,
+        "depth": c.depth,
         "grounded": c.source_ref.tier != SourceTier.MODEL_FALLBACK,
         "returning_concept": existing is not None,
         "instruction": "Ask the learner to explain this concept in their own words, then call judge_explanation.",
