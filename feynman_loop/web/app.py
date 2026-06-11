@@ -91,14 +91,15 @@ def _make_identity():
     return JsonIdentity(_ROOT / "feynman_user.json")
 
 
-def _log_event(*, concept: Concept, kind: str, score: float, missed: list[str]) -> None:
+def _log_event(*, concept: Concept, kind: str, score: float, missed: list[str],
+               explanation: str = "", rehearsed: bool = False) -> None:
     try:
         tags = _make_tagger().tag(missed)
     except Exception:
         tags = []
     _make_learner_log().append(
-        ReviewEvent(concept_id=concept.id, concept_label=concept.label,
-                    kind=kind, score=score, missed=missed, tags=tags)
+        ReviewEvent(concept_id=concept.id, concept_label=concept.label, kind=kind, score=score,
+                    missed=missed, tags=tags, explanation=explanation, rehearsed=rehearsed)
     )
 
 
@@ -146,6 +147,7 @@ class ReviewResponse(BaseModel):
     review_count: int
     transfer_available: bool  # whether a transfer challenge is unlocked (generated on demand)
     grounded: bool  # False when judged on model knowledge (tier-3), not the user's own source
+    rehearsed: bool = False  # near-verbatim repeat of the prior attempt: ask to re-express
 
 
 class GenerateTransferRequest(BaseModel):
@@ -246,7 +248,7 @@ async def start_upload(
 @app.post("/api/review", response_model=ReviewResponse)
 def review(req: ReviewRequest) -> ReviewResponse:
     s = _session(req.session_id)
-    report, state = run_review(
+    report, state, rehearsed = run_review(
         concept=s.concept,
         user_id=s.user_id,
         explanation=req.explanation,
@@ -261,7 +263,8 @@ def review(req: ReviewRequest) -> ReviewResponse:
     s.probe = None
     met = set(report.correct_points)
     _log_event(concept=s.concept, kind="explain", score=report.understanding_level,
-               missed=[rp.criterion for rp in s.concept.rubric if rp.criterion not in met])
+               missed=[rp.criterion for rp in s.concept.rubric if rp.criterion not in met],
+               explanation=req.explanation, rehearsed=rehearsed)
 
     return ReviewResponse(
         understanding_level=report.understanding_level,
@@ -274,6 +277,7 @@ def review(req: ReviewRequest) -> ReviewResponse:
         review_count=state.review_count,
         transfer_available=s.transfer_available,
         grounded=s.concept.source_ref.tier != SourceTier.MODEL_FALLBACK,
+        rehearsed=rehearsed,
     )
 
 
@@ -298,7 +302,7 @@ def transfer(req: TransferRequest) -> TransferResponse:
         probe=s.probe, user_id=s.user_id, user_answer=req.answer, engine=_make_transfer(), store=s.store
     )
     _log_event(concept=s.concept, kind="transfer", score=result.transfer_score,
-               missed=[m.criterion for m in result.missed])
+               missed=[m.criterion for m in result.missed], explanation=req.answer)
 
     remediation_question = None
     if result.transfer_score < REMEDIATION_GATE and not s.remediation_done and result.missed:

@@ -9,16 +9,30 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import UUID
 
+from difflib import SequenceMatcher
+
 from feynman_loop.judge.base import Judge
 from feynman_loop.models import Concept, GapReport, RubricPoint, TransferProbe, TransferResult, UserState
 from feynman_loop.retrieval.base import Retriever
-from feynman_loop.scheduling import compute_next_due
+from feynman_loop.scheduling import gated_next_due
 from feynman_loop.storage import JsonUserStateStore
 from feynman_loop.transfer.base import TransferEngine
 
 # WHY: don't probe application until the baseline explanation is solid; testing transfer on
 # someone who can't even restate the concept measures nothing (Decision 12).
 TRANSFER_GATE = 0.6
+
+# WHY: near-verbatim detection deliberately uses CHARACTER similarity, not semantic similarity.
+# A paraphrase is exactly what we want from the learner (re-expression proves understanding);
+# only a copy of their own prior wording is rehearsal. Soft signal: changes the ask, never the score.
+_REHEARSAL_THRESHOLD = 0.85
+
+
+def is_near_verbatim(a: str | None, b: str | None) -> bool:
+    if not a or not b:
+        return False
+    norm = lambda s: " ".join(s.lower().split())  # noqa: E731
+    return SequenceMatcher(None, norm(a), norm(b)).ratio() >= _REHEARSAL_THRESHOLD
 
 # WHY: if a transfer is weak, offer ONE narrower retry focused on the gap (bounded, not a loop).
 REMEDIATION_GATE = 0.6
@@ -50,7 +64,7 @@ def run_review(
     judge: Judge,
     store: JsonUserStateStore | None = None,
     now: datetime | None = None,
-) -> tuple[GapReport, UserState]:
+) -> tuple[GapReport, UserState, bool]:  # (report, state, rehearsed)
     now = now or datetime.now(timezone.utc)
 
     # JUDGE. Score the explanation against the concept's fixed rubric (built once at setup). The
@@ -60,6 +74,7 @@ def run_review(
     # UPDATE USER-STATE. next_due_at is written HERE, at the END of the review, by the interval
     # logic. The scheduler only reads it later (Decision 10: "due" is a suggestion, not imposed).
     prior = store.get(user_id=user_id, concept_id=concept.id) if store else None
+    rehearsed = is_near_verbatim(explanation, prior.last_explanation if prior else None)
     state = UserState(
         concept_id=concept.id,
         user_id=user_id,
@@ -67,14 +82,20 @@ def run_review(
         identified_gaps=[g.description for g in report.gaps],
         understanding_level=report.understanding_level,
         last_reviewed_at=now,
-        next_due_at=compute_next_due(report.understanding_level, now=now),
+        # WHY: gated, not raw. An early or rehearsed re-explanation must not extend the interval
+        # as if it were proof of retention (the echo problem).
+        next_due_at=gated_next_due(
+            report.understanding_level, now=now, rehearsed=rehearsed,
+            prior_last_reviewed=prior.last_reviewed_at if prior else None,
+            prior_next_due=prior.next_due_at if prior else None,
+        ),
         review_count=(prior.review_count + 1) if prior else 1,
     )
 
     if store is not None:
         store.put(state)
 
-    return report, state
+    return report, state, rehearsed
 
 
 def generate_transfer_probe(
@@ -108,8 +129,13 @@ def score_transfer(
             state.transfer_level = result.transfer_score
             # WHY: weakest-link. The lower of (can-restate, can-apply) governs when it resurfaces,
             # so a poor transfer overrides a good explanation and brings the concept back soon.
+            # Gated like the review: shrink applies immediately, growth must be earned by time.
             effective = min(state.understanding_level, result.transfer_score)
-            state.next_due_at = compute_next_due(effective, now=now)
+            state.next_due_at = gated_next_due(
+                effective, now=now,
+                prior_last_reviewed=state.last_reviewed_at,
+                prior_next_due=state.next_due_at,
+            )
             store.put(state)
     return result
 

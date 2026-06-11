@@ -81,15 +81,16 @@ def _make_identity():
     return JsonIdentity(_ROOT / "feynman_user.json")
 
 
-def _log_event(*, concept: Concept, kind: str, score: float, missed: list[str]) -> None:
+def _log_event(*, concept: Concept, kind: str, score: float, missed: list[str],
+               explanation: str = "", rehearsed: bool = False) -> None:
     """Append to the learner ledger; tagging is best-effort and never blocks the review."""
     try:
         tags = _make_tagger().tag(missed)
     except Exception:
         tags = []
     _make_learner_log().append(
-        ReviewEvent(concept_id=concept.id, concept_label=concept.label,
-                    kind=kind, score=score, missed=missed, tags=tags)
+        ReviewEvent(concept_id=concept.id, concept_label=concept.label, kind=kind, score=score,
+                    missed=missed, tags=tags, explanation=explanation, rehearsed=rehearsed)
     )
 
 
@@ -166,7 +167,7 @@ def judge_explanation(check_id: str, explanation: str) -> dict:
     chk = _CHECKS.get(check_id)
     if chk is None:
         return {"error": "unknown check_id; call start_check first"}
-    report, state = loop_ops.run_review(
+    report, state, rehearsed = loop_ops.run_review(
         concept=chk.concept, user_id=_make_identity().user_id(), explanation=explanation,
         judge=_make_judge(), store=_make_store(),
     )
@@ -175,8 +176,19 @@ def judge_explanation(check_id: str, explanation: str) -> dict:
     # ledger: criteria not fully met = rubric minus the points credited as "met"
     met = set(report.correct_points)
     missed = [rp.criterion for rp in chk.concept.rubric if rp.criterion not in met]
-    _log_event(concept=chk.concept, kind="explain",
-               score=report.understanding_level, missed=missed)
+    _log_event(concept=chk.concept, kind="explain", score=report.understanding_level,
+               missed=missed, explanation=explanation, rehearsed=rehearsed)
+    if rehearsed:
+        return {
+            "understanding_level": round(report.understanding_level, 2),
+            "rehearsed": True,
+            "instruction": (
+                "This is nearly identical to the learner's previous attempt, so it proves recall "
+                "of their own wording, not understanding. Ask them to RE-EXPRESS it: a new "
+                "example, a different audience, or an analogy they haven't used. Do not repeat "
+                "the gaps and never answer for them."
+            ),
+        }
     return {
         "understanding_level": round(report.understanding_level, 2),
         "correct_points": report.correct_points,
@@ -217,8 +229,8 @@ def score_transfer(check_id: str, answer: str) -> dict:
         probe=chk.probe, user_id=_make_identity().user_id(), user_answer=answer,
         engine=_make_transfer(), store=_make_store(),
     )
-    _log_event(concept=chk.concept, kind="transfer",
-               score=result.transfer_score, missed=[m.criterion for m in result.missed])
+    _log_event(concept=chk.concept, kind="transfer", score=result.transfer_score,
+               missed=[m.criterion for m in result.missed], explanation=answer)
     remediation_question = None
     if result.transfer_score < loop_ops.REMEDIATION_GATE and not chk.remediation_done and result.missed:
         chk.remediation_done = True
@@ -250,8 +262,15 @@ def progress() -> dict:
         st = store.get(user_id=uid, concept_id=c.id)
         if st is None:
             continue
+        # WHY: the interval IS the consolidation metric. It can only grow through repeated,
+        # delayed, successful retrieval (gated_next_due), so "comes back every N days" is the
+        # honest headline of memory strength; per-attempt % is just one performance.
+        interval_days = None
+        if st.next_due_at and st.last_reviewed_at:
+            interval_days = round((st.next_due_at - st.last_reviewed_at).total_seconds() / 86400, 1)
         concepts.append({
             "concept": c.label,
+            "memory_strength_days": interval_days,
             "understanding_level": round(st.understanding_level, 2),
             "transfer_level": round(st.transfer_level, 2) if st.transfer_level is not None else None,
             "next_due": st.next_due_at.strftime("%Y-%m-%d") if st.next_due_at else "",
@@ -263,6 +282,29 @@ def progress() -> dict:
         "due_now": due,
         "learner": derive_profile(_make_learner_log().events()),
     }
+
+
+@mcp.tool()
+def journey(concept: str) -> dict:
+    """Show the learner's journey on one concept: every past attempt in their own words, with
+    scores, oldest first. Present it as their growth record; this is the 0-to-90 made visible."""
+    wanted = concept.strip().casefold()
+    events = [e for e in _make_learner_log().events()
+              if e.concept_label.strip().casefold() == wanted]
+    if not events:
+        return {"concept": concept, "attempts": [], "note": "no attempts recorded yet"}
+    attempts = [{
+        "at": e.at.strftime("%Y-%m-%d"),
+        "kind": e.kind,
+        "score": round(e.score, 2),
+        "rehearsed": e.rehearsed,
+        "their_words": (e.explanation[:200] + "...") if len(e.explanation) > 200 else e.explanation,
+    } for e in events]
+    explains = [e for e in events if e.kind == "explain"]
+    headline = None
+    if len(explains) >= 2:
+        headline = f"{explains[0].score:.0%} on {explains[0].at:%Y-%m-%d} -> {explains[-1].score:.0%} today's latest"
+    return {"concept": concept, "attempts": attempts, "headline": headline}
 
 
 if __name__ == "__main__":

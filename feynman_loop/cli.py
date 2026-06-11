@@ -93,13 +93,16 @@ def main(argv: list[str]) -> int:
     user_id = uuid4()
     store = JsonUserStateStore("feynman_state.json")
 
-    report, state = run_review(
+    report, state, rehearsed = run_review(
         concept=concept,
         user_id=user_id,
         explanation=explanation,
         judge=judge,
         store=store,
     )
+    if rehearsed:
+        print("\n(Nearly identical to your last attempt. Say it differently: a new example, "
+              "a different audience, or an analogy you haven't used.)")
 
     print("\n" + render_gap_report(report))
     print(f"\nNext review due: {state.next_due_at:%Y-%m-%d} (review #{state.review_count})")

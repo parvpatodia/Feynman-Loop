@@ -323,6 +323,10 @@ async function submitExplanation() {
 function renderReview(r) {
   hide("feedbackPlaceholder");
   if (r.grounded) { hide("sourceNote"); } else { show("sourceNote"); }
+  if (r.rehearsed) {
+    document.getElementById("gaps").innerHTML =
+      `<div class="note">Nearly identical to your last attempt, so it proves recall of your own wording, not understanding. Say it differently: a new example, a different audience, or an analogy you haven't used.</div>`;
+  }
   const pct = Math.round(r.understanding_level * 100);
   document.getElementById("understanding").innerHTML = `${pct}% <small>understanding</small>`;
   document.getElementById("understandingBar").style.width = pct + "%";
@@ -334,7 +338,10 @@ function renderReview(r) {
     const extra = i >= GAP_CAP ? " extra hidden" : "";  // beyond the cap: hidden until "view all"
     return `<li class="gap${extra}">&bull; ${escapeHtml(g.description)}${src}</li>`;
   };
-  if (r.gaps.length) {
+  if (r.rehearsed) {
+    // the rehearsal note (set above) stands in for the gaps; repeating them would just be
+    // handing back the same prompts the user already rehearsed against
+  } else if (r.gaps.length) {
     let html = `<div class="block-title">Gaps to close (questions)</div><ul>${r.gaps.map(gapItem).join("")}</ul>`;
     if (r.gaps.length > GAP_CAP) {
       html += `<button type="button" class="linkbtn" onclick="viewAllGaps(this)">View all ${r.gaps.length} gaps</button>`;

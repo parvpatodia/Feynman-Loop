@@ -151,6 +151,28 @@ def test_returning_concept_reuses_id_and_history():
     assert cid_a is not None
 
 
+def test_journey_shows_attempts_in_users_own_words():
+    started = srv.start_check("Backpropagation")
+    srv.judge_explanation(started["check_id"], "it sends errors backward to compute gradients")
+    srv.judge_explanation(started["check_id"],
+                          "applying the chain rule backward through the graph, then SGD updates weights")
+    j = srv.journey("backpropagation")  # case-insensitive
+    assert len(j["attempts"]) == 2
+    assert "errors backward" in j["attempts"][0]["their_words"]
+    assert j["headline"]  # first vs latest score
+
+
+def test_rehearsed_attempt_gets_re_expression_ask_not_gaps():
+    started = srv.start_check("Backpropagation")
+    text = "backprop computes gradients of the loss via the chain rule and the optimizer updates weights"
+    srv.judge_explanation(started["check_id"], text)
+    second = srv.judge_explanation(started["check_id"], text)  # verbatim repeat
+    assert second["rehearsed"] is True
+    assert "gaps" not in second                      # the same prompts are not handed back
+    assert "RE-EXPRESS" in second["instruction"]
+    assert "never answer" in second["instruction"]
+
+
 def test_progress_includes_learner_profile_and_due_list():
     started = srv.start_check("Backpropagation")
     srv.judge_explanation(started["check_id"], "explained")

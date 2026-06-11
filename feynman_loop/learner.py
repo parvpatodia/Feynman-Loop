@@ -46,6 +46,11 @@ class ReviewEvent(BaseModel):
     score: float
     missed: list[str] = Field(default_factory=list)  # criteria not fully met, verbatim
     tags: list[str] = Field(default_factory=list)    # failure-mode tags for the misses
+    # WHY: the user's own words, kept verbatim. The journey from 0 to 90 only becomes visible
+    # (and joyful) if the person can read what they said three weeks ago next to what they say
+    # today. Stored locally; this is the user's growth record, not judge input.
+    explanation: str = ""
+    rehearsed: bool = False  # near-verbatim repeat of the prior attempt (soft signal, no penalty)
     at: datetime = Field(default_factory=_utcnow)
 
 

@@ -198,6 +198,28 @@ streaming the gap.
   `python -m feynman_loop.mcp_server`. 43 tests green (offline; live host calls need a real run).
 - Connectors + curated corpus: roadmap/pitch only, not built.
 
+**Decision 17 — judge the journey, not the diff (2026-06-10).** How two similar explanations of
+the same concept are handled:
+- Explanations are stored verbatim in the ledger (`ReviewEvent.explanation`) — the user's own
+  growth record; `journey` MCP tool shows attempts chronologically ("you, 3 weeks ago" vs today).
+- ECHO FIX (`scheduling.gated_next_due`): interval GROWTH must be earned by elapsed time
+  (early review → growth proportional to elapsed/prior_interval). Shrink applies immediately
+  (failure is evidence regardless of timing). First review = full candidate. Used by run_review
+  AND score_transfer.
+- REHEARSAL (`loop.is_near_verbatim`, difflib ratio >= 0.85 on normalized text): deliberately
+  CHARACTER similarity, not semantic — paraphrase is the desired behavior, only copies of your
+  own prior wording are rehearsal. Soft: score stands, interval never grows, and the response
+  swaps gaps for a re-expression ask (new example / different audience / fresh analogy). Never
+  an accusation (trust criterion).
+- CONSOLIDATION is the headline metric: `memory_strength_days` (the interval) in progress —
+  it can only grow via repeated, delayed, successful retrieval, so it is the honest measure of
+  the 0→90 journey; per-attempt % is detail.
+**Distribution model (analysis, pending Parv's ratification):** free = local-first open source,
+bring-your-own-key; no central server (private + zero marginal cost + nothing to scale or breach).
+Leaderboard: rank-based contradicts Decision 8 (gamification) — proposed alternative is shareable
+journey artifacts + collective non-comparative stats. Auto-invocation cannot be forced by an MCP
+server (host decides); proactivity stays due-driven via hooks + tool descriptions.
+
 **Status: all post-demo items (#1-#5) shipped.** Web app (polished, voice, PDF, tier-3) + MCP
 server. Live MCP test on 2026-06-10 ran the full loop end-to-end (NBA: 50%→67%→transfer 29%→
 remediation) with the host correctly relaying probes.

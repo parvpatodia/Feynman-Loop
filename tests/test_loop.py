@@ -81,8 +81,10 @@ def test_run_review_judges_and_persists(tmp_path):
     judge = _FakeJudge(report=_report(c.id, 0.5))
     store = JsonUserStateStore(tmp_path / "state.json")
 
-    report, state = run_review(concept=c, user_id=user_id, explanation="backprop updates weights",
-                               judge=judge, store=store)
+    report, state, rehearsed = run_review(concept=c, user_id=user_id,
+                                          explanation="backprop updates weights",
+                                          judge=judge, store=store)
+    assert rehearsed is False  # first attempt can't be a rehearsal
 
     assert state.understanding_level == 0.5
     assert state.next_due_at is not None
@@ -97,5 +99,5 @@ def test_second_review_increments_count(tmp_path):
     user_id = uuid4()
     store = JsonUserStateStore(tmp_path / "state.json")
     run_review(concept=c, user_id=user_id, explanation="a", judge=_FakeJudge(report=_report(c.id, 0.3)), store=store)
-    _, state = run_review(concept=c, user_id=user_id, explanation="b", judge=_FakeJudge(report=_report(c.id, 0.7)), store=store)
+    _, state, _ = run_review(concept=c, user_id=user_id, explanation="b", judge=_FakeJudge(report=_report(c.id, 0.7)), store=store)
     assert state.review_count == 2
