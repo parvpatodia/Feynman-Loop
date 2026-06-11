@@ -63,6 +63,42 @@ def merge_hooks_into_settings(settings_path: Path, *, python: str, home: Path) -
     return True
 
 
+def notification_agent_plist(*, python: str, home: Path, hour: int = 10) -> str:
+    """A launchd agent that posts the daily due-question notification. OPT-IN only: init never
+    installs a background job silently; the user passes --notifications to ask for it."""
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.feynman-loop.due</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>{python}</string>
+    <string>-m</string>
+    <string>feynman_loop.due</string>
+    <string>--notify</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict><key>FEYNMAN_HOME</key><string>{home}</string></dict>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>{hour}</integer><key>Minute</key><integer>0</integer></dict>
+</dict>
+</plist>
+"""
+
+
+def install_notification_agent(*, python: str, home: Path, hour: int = 10) -> Path:
+    import subprocess
+
+    agents = Path.home() / "Library/LaunchAgents"
+    agents.mkdir(parents=True, exist_ok=True)
+    plist = agents / "com.feynman-loop.due.plist"
+    plist.write_text(notification_agent_plist(python=python, home=home, hour=hour))
+    subprocess.run(["launchctl", "unload", str(plist)], check=False, capture_output=True)
+    subprocess.run(["launchctl", "load", str(plist)], check=False, capture_output=True)
+    return plist
+
+
 def generic_mcp_snippet(*, python: str, home: Path) -> str:
     return json.dumps({
         "feynman-loop": {
@@ -73,8 +109,9 @@ def generic_mcp_snippet(*, python: str, home: Path) -> str:
     }, indent=2)
 
 
-def run_init(*, api_key: str | None = None) -> int:
+def run_init(*, api_key: str | None = None, notifications: bool = False) -> int:
     import os
+    import platform
 
     home = paths.home()
     python = sys.executable
@@ -97,6 +134,16 @@ def run_init(*, api_key: str | None = None) -> int:
         print("Claude Code hooks: " + ("installed (next session)." if added else "already present."))
     else:
         print("Claude Code (~/.claude) not found; hooks skipped.")
+
+    if notifications:
+        if platform.system() == "Darwin":
+            plist = install_notification_agent(python=python, home=home)
+            print(f"Daily due-question notification: 10:00 ({plist}).")
+        else:
+            print("Notifications agent is macOS-only for now; run "
+                  "`feynman-loop due --notify` from cron instead.")
+    else:
+        print("Daily due-question notification: off. Enable with `feynman-loop init --notifications`.")
 
     if not key:
         print("\nNo API key found: zero-key mode. Your own chat model judges under a verified "

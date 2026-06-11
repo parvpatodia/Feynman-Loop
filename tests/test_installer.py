@@ -54,3 +54,13 @@ def test_copy_hook_assets(tmp_path):
 def test_generic_snippet_is_valid_json(tmp_path):
     snippet = json.loads(generic_mcp_snippet(python="p", home=tmp_path))
     assert snippet["feynman-loop"]["args"] == ["-m", "feynman_loop.mcp_server"]
+
+
+def test_notification_agent_plist_runs_due_notify(tmp_path):
+    from feynman_loop.installer import notification_agent_plist
+
+    plist = notification_agent_plist(python="/venv/python", home=tmp_path, hour=9)
+    assert "<string>-m</string>" in plist and "<string>feynman_loop.due</string>" in plist
+    assert "<string>--notify</string>" in plist
+    assert f"<string>{tmp_path}</string>" in plist     # FEYNMAN_HOME pinned for launchd
+    assert "<integer>9</integer>" in plist             # fires at the chosen hour

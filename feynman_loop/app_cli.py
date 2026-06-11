@@ -44,10 +44,13 @@ def main(argv: list[str] | None = None) -> int:
 
     p_init = sub.add_parser("init", help="configure MCP + hooks")
     p_init.add_argument("--key", default=None, help="Anthropic API key (else $ANTHROPIC_API_KEY)")
+    p_init.add_argument("--notifications", action="store_true",
+                        help="install a daily macOS notification with the top due question (opt-in)")
 
     p_due = sub.add_parser("due", help="what's due + learner profile")
     p_due.add_argument("--context", action="store_true")
     p_due.add_argument("--quiet", action="store_true")
+    p_due.add_argument("--notify", action="store_true")
 
     p_check = sub.add_parser("check", help="terminal explain-back")
     p_check.add_argument("source")
@@ -62,10 +65,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "init":
         from feynman_loop.installer import run_init
-        return run_init(api_key=args.key)
+        return run_init(api_key=args.key, notifications=args.notifications)
     if args.cmd == "due":
         from feynman_loop.due import main as due_main
-        flags = (["--context"] if args.context else []) + (["--quiet"] if args.quiet else [])
+        flags = ((["--context"] if args.context else []) + (["--quiet"] if args.quiet else [])
+                 + (["--notify"] if args.notify else []))
         return due_main(flags)
     if args.cmd == "check":
         if _needs_key() or _needs_embeddings():

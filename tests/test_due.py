@@ -1,17 +1,17 @@
-"""Tests for the due CLI: ledger aggregation, the SessionStart context block, and the
-consume-once semantics of pending shipped-work nudges."""
+"""Tests for the due CLI: ledger aggregation, the SessionStart context block, the
+consume-once semantics of pending shipped-work nudges, and the notification push."""
 
 import json
 from datetime import datetime, timedelta, timezone
 
-from feynman_loop.due import _context_block, collect
+from feynman_loop.due import _context_block, _notification_text, collect
 from feynman_loop.models import Citation, Concept, RubricPoint, SourceRef, SourceTier, UserState
 from feynman_loop.storage import JsonConceptStore, JsonIdentity, JsonUserStateStore
 
 _NOW = datetime(2026, 6, 10, tzinfo=timezone.utc)
 
 
-def _seed(root, label="Backpropagation", due_delta_days=-1, understanding=0.45):
+def _seed(root, label="Backpropagation", due_delta_days=-1, understanding=0.45, gaps=()):
     uid = JsonIdentity(root / "feynman_user.json").user_id()
     c = Concept(
         label=label,
@@ -22,6 +22,7 @@ def _seed(root, label="Backpropagation", due_delta_days=-1, understanding=0.45):
     JsonConceptStore(root / "feynman_concepts.json").put(c)
     JsonUserStateStore(root / "feynman_state.json").put(UserState(
         concept_id=c.id, user_id=uid, understanding_level=understanding,
+        identified_gaps=list(gaps),
         next_due_at=_NOW + timedelta(days=due_delta_days),
     ))
     return c
@@ -46,6 +47,32 @@ def test_context_block_offers_and_never_forces(tmp_path):
 def test_context_block_empty_when_nothing_actionable(tmp_path):
     _seed(tmp_path, due_delta_days=+5)  # tracked but not due
     assert _context_block(collect(root=tmp_path, now=_NOW)) == ""
+
+
+def test_context_opens_with_the_weakest_concepts_stored_probe(tmp_path):
+    _seed(tmp_path, label="Entropy", due_delta_days=-1, understanding=0.7,
+          gaps=["What does sharpening a distribution do to surprise?"])
+    _seed(tmp_path, label="Backpropagation", due_delta_days=-2, understanding=0.4,
+          gaps=["What performs the weight update after the gradients exist?"])
+    data = collect(root=tmp_path, now=_NOW)
+    assert [d["concept"] for d in data["due"]] == ["Backpropagation", "Entropy"]  # weakest first
+    block = _context_block(data)
+    # the nudge is a concrete 30-second question, not a guilt counter
+    assert "Micro-rep" in block
+    assert "What performs the weight update" in block
+    assert "from memory" in block
+
+
+def test_notification_text_is_one_concrete_question(tmp_path):
+    _seed(tmp_path, gaps=["What performs the weight update after the gradients exist?"])
+    text = _notification_text(collect(root=tmp_path, now=_NOW))
+    assert text.startswith("Backpropagation: What performs the weight update")
+    assert len(text) <= 180
+
+
+def test_notification_text_empty_when_nothing_due(tmp_path):
+    _seed(tmp_path, due_delta_days=+5)
+    assert _notification_text(collect(root=tmp_path, now=_NOW)) == ""
 
 
 def test_pending_is_surfaced_once_then_consumed(tmp_path):

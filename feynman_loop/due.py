@@ -47,7 +47,12 @@ def collect(root: Path | None = None, now: datetime | None = None) -> dict:
                 "understanding": round(st.understanding_level, 2),
                 "transfer": round(st.transfer_level, 2) if st.transfer_level is not None else None,
                 "due_since": st.next_due_at.strftime("%Y-%m-%d"),
+                # WHY: the probe from the last review makes the nudge CONCRETE. "X is due" asks
+                # for discipline; an actual 30-second question only asks for an answer. Stored at
+                # review time, so surfacing it needs no model call and works everywhere.
+                "probe": st.identified_gaps[0] if st.identified_gaps else "",
             })
+    due.sort(key=lambda d: d["understanding"])  # weakest first: the rep that matters most
 
     # pending = AI-written work shipped without an explain-back (written by the Stop hook).
     # Reading consumes it: each item is surfaced once; ignoring it is allowed and costs nothing.
@@ -72,6 +77,13 @@ def _context_block(data: dict) -> str:
             f"{d['concept']} (last {d['understanding']:.0%})" for d in data["due"][:5]
         )
         lines.append(f"{len(data['due'])} concept(s) due for an explain-back: {items}.")
+        top = data["due"][0]
+        if top.get("probe"):
+            lines.append(
+                f'Micro-rep for "{top["concept"]}": ask the user this 30-second question near '
+                f'the start of the session, to be answered from memory in their own words: '
+                f'"{top["probe"]}"'
+            )
     for p in data["pending"][:3]:
         files = ", ".join(p.get("files", [])[:3])
         lines.append(
@@ -107,10 +119,37 @@ def _human(data: dict) -> str:
     return "\n".join(out)
 
 
+def _notification_text(data: dict) -> str:
+    """The OS-notification line: one concrete question, not a guilt counter."""
+    if not data["due"]:
+        return ""
+    top = data["due"][0]
+    if top.get("probe"):
+        return f"{top['concept']}: {top['probe']}"[:180]
+    more = f" (+{len(data['due']) - 1} more)" if len(data["due"]) > 1 else ""
+    return f"30-second rep due: {top['concept']}{more}"
+
+
+def _post_notification(text: str) -> None:
+    """macOS notification via osascript; prints as fallback elsewhere. This is the only true
+    PUSH channel we have: hosts cannot be pushed into (MCP is pull-only), the OS can."""
+    import json as _json
+    import platform
+    import subprocess
+
+    if platform.system() == "Darwin":
+        script = f'display notification {_json.dumps(text)} with title "Feynman-Loop"'
+        subprocess.run(["osascript", "-e", script], check=False, capture_output=True)
+    else:
+        print(text)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="feynman-due", add_help=True)
     parser.add_argument("--context", action="store_true", help="emit a SessionStart context block")
     parser.add_argument("--quiet", action="store_true", help="print nothing when nothing is actionable")
+    parser.add_argument("--notify", action="store_true",
+                        help="post an OS notification with the top due question (for launchd/cron)")
     args = parser.parse_args(argv)
 
     try:
@@ -119,6 +158,11 @@ def main(argv: list[str] | None = None) -> int:
         # WHY: a hook must never break the host session. No ledger -> say nothing.
         return 0
 
+    if args.notify:
+        text = _notification_text(data)
+        if text:
+            _post_notification(text)
+        return 0
     if args.context:
         block = _context_block(data)
         if block:
