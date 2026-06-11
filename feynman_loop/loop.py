@@ -81,6 +81,9 @@ def run_review(
         last_explanation=explanation,
         identified_gaps=[g.description for g in report.gaps],
         understanding_level=report.understanding_level,
+        # WHY: carry the transfer signal forward; a re-explanation must not erase the record of
+        # whether the user could APPLY the concept (found in audit: it was being reset to None).
+        transfer_level=prior.transfer_level if prior else None,
         last_reviewed_at=now,
         # WHY: gated, not raw. An early or rehearsed re-explanation must not extend the interval
         # as if it were proof of retention (the echo problem).

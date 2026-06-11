@@ -100,6 +100,18 @@ class _FakeJudge:
                          gaps=[Gap(description="?", citation=Citation(doc_label="d", quote="q"))])
 
 
+def test_re_review_does_not_wipe_transfer_level(tmp_path):
+    # audit find: a fresh UserState was dropping prior.transfer_level
+    c, uid = _concept(), uuid4()
+    store = JsonUserStateStore(tmp_path / "s.json")
+    store.put(UserState(concept_id=c.id, user_id=uid, understanding_level=0.7,
+                        transfer_level=0.4, last_reviewed_at=_NOW - timedelta(days=5),
+                        next_due_at=_NOW + timedelta(days=5), last_explanation="old words"))
+    _, state, _ = run_review(concept=c, user_id=uid, explanation="completely new phrasing here",
+                             judge=_FakeJudge(0.8), store=store, now=_NOW)
+    assert state.transfer_level == 0.4  # survived the re-review
+
+
 def test_run_review_flags_rehearsal_and_holds_interval(tmp_path):
     c, uid = _concept(), uuid4()
     store = JsonUserStateStore(tmp_path / "s.json")
