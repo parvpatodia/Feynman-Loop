@@ -75,19 +75,27 @@ class _FakeTagger:
         return ["mechanism" for _ in missed]
 
 
+class _FakeRelated:
+    def related_to(self, concept_label):
+        return ["Chain Rule"]
+
+
 def _patch_factories(monkeypatch, tmp_path):
     from feynman_loop.learner import JsonLearnerLog
     from feynman_loop.storage import JsonConceptStore, JsonIdentity, JsonUserStateStore
 
+    monkeypatch.setattr(webapp, "_ROOT", tmp_path)
+    monkeypatch.delenv("FEYNMAN_VAULT", raising=False)
     monkeypatch.setattr(webapp, "_make_retriever", lambda: _FakeRetriever())
     monkeypatch.setattr(webapp, "_make_judge", lambda: _FakeJudge())
     monkeypatch.setattr(webapp, "_make_transfer", lambda: _FakeTransfer())
     monkeypatch.setattr(webapp, "_make_expander", lambda: _FakeExpander())
-    monkeypatch.setattr(webapp, "_make_store", lambda: JsonUserStateStore(tmp_path / "s.json"))
-    monkeypatch.setattr(webapp, "_make_concept_store", lambda: JsonConceptStore(tmp_path / "c.json"))
-    monkeypatch.setattr(webapp, "_make_learner_log", lambda: JsonLearnerLog(tmp_path / "l.json"))
+    monkeypatch.setattr(webapp, "_make_related", lambda: _FakeRelated())
+    monkeypatch.setattr(webapp, "_make_store", lambda: JsonUserStateStore(tmp_path / "feynman_state.json"))
+    monkeypatch.setattr(webapp, "_make_concept_store", lambda: JsonConceptStore(tmp_path / "feynman_concepts.json"))
+    monkeypatch.setattr(webapp, "_make_learner_log", lambda: JsonLearnerLog(tmp_path / "feynman_learner.json"))
     monkeypatch.setattr(webapp, "_make_tagger", lambda: _FakeTagger())
-    monkeypatch.setattr(webapp, "_make_identity", lambda: JsonIdentity(tmp_path / "u.json"))
+    monkeypatch.setattr(webapp, "_make_identity", lambda: JsonIdentity(tmp_path / "feynman_user.json"))
 
 
 @pytest.fixture

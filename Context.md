@@ -214,6 +214,20 @@ the same concept are handled:
 - CONSOLIDATION is the headline metric: `memory_strength_days` (the interval) in progress —
   it can only grow via repeated, delayed, successful retrieval, so it is the honest measure of
   the 0→90 journey; per-attempt % is detail.
+**Decision 18 — the knowledge graph is the owned artifact (2026-06-10).** Root cause #3 of
+AI-era non-learning: learning is fragmented across disposable chats; no durable, owned artifact
+of what you know. Fix: the ledger renders as a knowledge graph where node status is EARNED
+(explain-backs + gated intervals), never collected. Build:
+- `Concept.related` (edges; one Haiku call at intake, `relations.ClaudeRelatedConcepts`).
+- `vault.py`: regenerates a markdown vault with [[wikilinks]] from the ledger after every event
+  (`sync_vault`, best-effort in both servers' `_log_event` + at intake). Obsidian renders the
+  graph natively; FEYNMAN_VAULT can point inside an existing vault. Statuses: untested/due/
+  fragile/consolidating/strong (earned via interval). Per-note: frontmatter, latest explanation
+  in own words, related links, journey log. Ledger = source of truth; vault = regenerable view.
+- `knowledge_map` MCP tool: same graph as inline mermaid so ANY MCP host (Claude/ChatGPT/Gemini)
+  renders the map in the chat window; frontier (untracked related) shown as circles.
+- 79 tests green.
+
 **Distribution model (analysis, pending Parv's ratification):** free = local-first open source,
 bring-your-own-key; no central server (private + zero marginal cost + nothing to scale or breach).
 Leaderboard: rank-based contradicts Decision 8 (gamification) — proposed alternative is shareable

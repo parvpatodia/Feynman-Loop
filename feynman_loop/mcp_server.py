@@ -11,6 +11,7 @@ whole point is that the learner retrieves the answer. Every tool result restates
 
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,10 +22,12 @@ import feynman_loop.loop as loop_ops
 from feynman_loop.judge.claude_judge import ClaudeJudge
 from feynman_loop.learner import ClaudeMissTagger, JsonLearnerLog, ReviewEvent, derive_profile
 from feynman_loop.models import MODEL_FALLBACK_LABEL, Concept, SourceRef, SourceTier
+from feynman_loop.relations import ClaudeRelatedConcepts
 from feynman_loop.retrieval.chroma_store import ChromaRetriever, sentence_transformer_embedder
 from feynman_loop.retrieval.query_expansion import ClaudeQueryExpander
 from feynman_loop.storage import JsonConceptStore, JsonIdentity, JsonUserStateStore
 from feynman_loop.transfer.claude_transfer import ClaudeTransfer
+from feynman_loop.vault import mermaid_map, sync_vault
 
 mcp = FastMCP("feynman-loop")
 
@@ -81,6 +84,18 @@ def _make_identity():
     return JsonIdentity(_ROOT / "feynman_user.json")
 
 
+def _make_related():
+    return ClaudeRelatedConcepts()
+
+
+def _sync_vault() -> None:
+    """Regenerate the knowledge-graph vault; best-effort, never blocks a review."""
+    try:
+        sync_vault(_ROOT)
+    except Exception:
+        pass
+
+
 def _log_event(*, concept: Concept, kind: str, score: float, missed: list[str],
                explanation: str = "", rehearsed: bool = False) -> None:
     """Append to the learner ledger; tagging is best-effort and never blocks the review."""
@@ -92,6 +107,7 @@ def _log_event(*, concept: Concept, kind: str, score: float, missed: list[str],
         ReviewEvent(concept_id=concept.id, concept_label=concept.label, kind=kind, score=score,
                     missed=missed, tags=tags, explanation=explanation, rehearsed=rehearsed)
     )
+    _sync_vault()  # every attempt is reflected in the knowledge graph immediately
 
 
 class _Check:
@@ -148,7 +164,15 @@ def start_check(concept: str, source_text: str = "") -> dict:
         c = Concept(label=concept, source_ref=source_ref)
         loop_ops.build_concept_rubric(concept=c, retriever=retriever, judge=_make_judge())
 
+    if existing is None and not c.related:
+        # graph edges, fetched once at intake; best-effort (a missing edge never blocks a check)
+        try:
+            c.related = _make_related().related_to(c.label)
+        except Exception:
+            c.related = []
+
     _make_concept_store().put(c)
+    _sync_vault()  # the node appears on the map at intake, as "untested"
     check_id = uuid.uuid4().hex
     _CHECKS[check_id] = _Check(c, retriever)
     return {
@@ -281,6 +305,25 @@ def progress() -> dict:
         "concepts": concepts,
         "due_now": due,
         "learner": derive_profile(_make_learner_log().events()),
+    }
+
+
+@mcp.tool()
+def knowledge_map() -> dict:
+    """Render the learner's verified knowledge graph: every node was earned by explaining, with
+    status from earned memory strength (due/fragile/consolidating/strong); circles are the
+    frontier (related concepts not yet learned). Render the mermaid code block for the user."""
+    mermaid = mermaid_map(_ROOT)
+    if not mermaid:
+        return {"note": "no concepts tracked yet; run a check first"}
+    vault = os.environ.get("FEYNMAN_VAULT", str(_ROOT / "vault"))
+    return {
+        "mermaid": mermaid,
+        "vault": vault,
+        "instruction": (
+            "Show the mermaid graph to the user as a rendered diagram. Mention they can open "
+            f"the markdown vault at {vault} in Obsidian for the full interactive graph."
+        ),
     }
 
 

@@ -62,20 +62,30 @@ class _FakeTagger:
         return ["mechanism" for _ in missed]
 
 
+class _FakeRelated:
+    def related_to(self, concept_label):
+        return ["Chain Rule"]
+
+
 @pytest.fixture(autouse=True)
 def fakes(monkeypatch, tmp_path):
     from feynman_loop.learner import JsonLearnerLog
     from feynman_loop.storage import JsonConceptStore, JsonIdentity
 
+    # WHY canonical filenames + _ROOT patch: the vault/knowledge map reads the same ledger files
+    # by their real names, so aligning them lets the graph be tested through the server module.
+    monkeypatch.setattr(srv, "_ROOT", tmp_path)
+    monkeypatch.delenv("FEYNMAN_VAULT", raising=False)
     monkeypatch.setattr(srv, "_make_retriever", lambda: _FakeRetriever())
     monkeypatch.setattr(srv, "_make_judge", lambda: _FakeJudge())
     monkeypatch.setattr(srv, "_make_transfer", lambda: _FakeTransfer())
     monkeypatch.setattr(srv, "_make_expander", lambda: _FakeExpander())
-    monkeypatch.setattr(srv, "_make_store", lambda: JsonUserStateStore(tmp_path / "s.json"))
-    monkeypatch.setattr(srv, "_make_concept_store", lambda: JsonConceptStore(tmp_path / "c.json"))
-    monkeypatch.setattr(srv, "_make_learner_log", lambda: JsonLearnerLog(tmp_path / "l.json"))
+    monkeypatch.setattr(srv, "_make_related", lambda: _FakeRelated())
+    monkeypatch.setattr(srv, "_make_store", lambda: JsonUserStateStore(tmp_path / "feynman_state.json"))
+    monkeypatch.setattr(srv, "_make_concept_store", lambda: JsonConceptStore(tmp_path / "feynman_concepts.json"))
+    monkeypatch.setattr(srv, "_make_learner_log", lambda: JsonLearnerLog(tmp_path / "feynman_learner.json"))
     monkeypatch.setattr(srv, "_make_tagger", lambda: _FakeTagger())
-    monkeypatch.setattr(srv, "_make_identity", lambda: JsonIdentity(tmp_path / "u.json"))
+    monkeypatch.setattr(srv, "_make_identity", lambda: JsonIdentity(tmp_path / "feynman_user.json"))
     srv._CHECKS.clear()
 
 
@@ -149,6 +159,25 @@ def test_returning_concept_reuses_id_and_history():
     assert len(prog["concepts"]) == 1          # ONE concept, not a fork
     assert prog["learner"]["reviews"] == 2     # both attempts on its history
     assert cid_a is not None
+
+
+def test_knowledge_map_renders_earned_nodes_and_frontier(tmp_path):
+    started = srv.start_check("Backpropagation")
+    srv.judge_explanation(started["check_id"], "it computes gradients via the chain rule")
+    out = srv.knowledge_map()
+    assert "graph TD" in out["mermaid"]
+    assert "Backpropagation" in out["mermaid"]      # earned node, with status
+    assert "Chain Rule" in out["mermaid"]           # frontier node from relations
+    assert "---" in out["mermaid"]                  # an edge between them
+    # the vault was synced too: markdown with wikilinks exists on disk
+    assert (tmp_path / "vault" / "Backpropagation.md").exists()
+    assert "[[Chain Rule]]" in (tmp_path / "vault" / "Backpropagation.md").read_text()
+    assert (tmp_path / "vault" / "Feynman Knowledge Map.md").exists()
+
+
+def test_knowledge_map_empty_ledger():
+    out = srv.knowledge_map()
+    assert "note" in out
 
 
 def test_journey_shows_attempts_in_users_own_words():

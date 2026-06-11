@@ -21,6 +21,7 @@ feynman_concepts.json
 feynman_learner.json
 feynman_user.json
 feynman_pending.json
+vault/
 
 # OS
 .DS_Store

@@ -62,6 +62,9 @@ class Concept(BaseModel):
     # WHY: the key points a correct explanation must cover, built ONCE from the source at setup and
     # reused for every review, so the understanding score is consistent and responsive across attempts.
     rubric: list[RubricPoint] = Field(default_factory=list)
+    # WHY: neighbouring concepts (prerequisites/siblings), fetched once at intake. These become the
+    # edges of the knowledge graph; untracked neighbours render as the learner's frontier.
+    related: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=_utcnow)
 
     # NOTE: there is deliberately no goal_id here. Decision 11 moved the concept->goal tie into

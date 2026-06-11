@@ -35,11 +35,13 @@ from feynman_loop.models import (
     TransferProbe,
 )
 from feynman_loop.learner import ClaudeMissTagger, JsonLearnerLog, ReviewEvent
+from feynman_loop.relations import ClaudeRelatedConcepts
 from feynman_loop.retrieval.chroma_store import ChromaRetriever, sentence_transformer_embedder
 from feynman_loop.retrieval.query_expansion import ClaudeQueryExpander
 from feynman_loop.sources import extract_text
 from feynman_loop.storage import JsonConceptStore, JsonIdentity, JsonUserStateStore
 from feynman_loop.transfer.claude_transfer import ClaudeTransfer
+from feynman_loop.vault import sync_vault
 
 _STATIC = Path(__file__).parent / "static"
 _ROOT = Path(__file__).resolve().parent.parent.parent  # repo root; ledger files anchor here
@@ -91,6 +93,17 @@ def _make_identity():
     return JsonIdentity(_ROOT / "feynman_user.json")
 
 
+def _make_related():
+    return ClaudeRelatedConcepts()
+
+
+def _sync_vault() -> None:
+    try:
+        sync_vault(_ROOT)
+    except Exception:
+        pass
+
+
 def _log_event(*, concept: Concept, kind: str, score: float, missed: list[str],
                explanation: str = "", rehearsed: bool = False) -> None:
     try:
@@ -101,6 +114,7 @@ def _log_event(*, concept: Concept, kind: str, score: float, missed: list[str],
         ReviewEvent(concept_id=concept.id, concept_label=concept.label, kind=kind, score=score,
                     missed=missed, tags=tags, explanation=explanation, rehearsed=rehearsed)
     )
+    _sync_vault()  # every attempt is reflected in the knowledge graph immediately
 
 
 # --- in-memory per-session state ---
@@ -222,7 +236,14 @@ def _start_session(*, source_text: str, concept_label: str) -> StartResponse:
         concept = Concept(label=concept_label, source_ref=source_ref)
         build_concept_rubric(concept=concept, retriever=retriever, judge=_make_judge())
 
+    if existing is None and not concept.related:
+        try:
+            concept.related = _make_related().related_to(concept.label)
+        except Exception:
+            concept.related = []
+
     _make_concept_store().put(concept)
+    _sync_vault()
     sid = uuid.uuid4().hex
     _SESSIONS[sid] = _Session(retriever, concept, _make_identity().user_id(), _make_store())
     return StartResponse(session_id=sid, concept_label=concept.label)
