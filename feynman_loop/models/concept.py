@@ -75,6 +75,11 @@ class Concept(BaseModel):
     # WHY: the depth the rubric is built to. Changing depth rebuilds the rubric (scores across
     # depths are not comparable, so the change is explicit, never silent).
     depth: Depth = "working"
+    # WHY a snapshot despite Decision 9 (locator, not truth): an MCP source is an ephemeral paste
+    # from the chat, not a document on disk, so no locator can re-find it after a restart. The
+    # capped snapshot is what keeps grounding alive across restarts, rebuilds, and depth changes.
+    # Stays local (SQLite); empty for doc-backed or knowledge-only concepts.
+    source_text: str = ""
     created_at: datetime = Field(default_factory=_utcnow)
 
     # NOTE: there is deliberately no goal_id here. Decision 11 moved the concept->goal tie into

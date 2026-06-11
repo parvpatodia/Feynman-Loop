@@ -112,15 +112,20 @@ def run_init(*, api_key: str | None = None) -> int:
         print(f"\nKnowledge graph: plain markdown at {vault} (works as-is)."
               "\nFor the interactive graph view, install Obsidian (https://obsidian.md) and open that folder as a vault.")
 
-    # Pre-download the local embedding model so the first grounded check doesn't silently hang.
-    print("\nWarming the local embedding model (~80MB, one-time)...")
+    # Pre-download the local embedding model so the first long-document check doesn't hang.
+    # Normal pasted sources never touch embeddings (direct grounding), so missing extras is fine.
     try:
         from feynman_loop.retrieval.chroma_store import sentence_transformer_embedder
-
-        sentence_transformer_embedder()(["warm up"])
-        print("Embedding model ready.")
-    except Exception:
-        print("Could not pre-download (offline?); it will download on first grounded check.")
+    except ImportError:
+        print("\nEmbeddings extra not installed; pasted sources still work fully. For long-"
+              'document grounding and the web UI: pip install "feynman-loop[embeddings]"')
+    else:
+        print("\nWarming the local embedding model (~80MB, one-time)...")
+        try:
+            sentence_transformer_embedder()(["warm up"])
+            print("Embedding model ready.")
+        except Exception:
+            print("Could not pre-download (offline?); it will download on first long-document check.")
 
     print("\nFor any other MCP host (ChatGPT Desktop, Gemini, Cursor), add:\n"
           + generic_mcp_snippet(python=python, home=home))

@@ -10,16 +10,26 @@ The project is governed by three docs, read in order: `PRINCIPLES.md` (the const
 
 ## Setup
 
-Use an isolated virtualenv. Do not install into a global or conda environment, the dependencies (numpy, sklearn, torch via sentence-transformers) are sensitive to ABI drift.
+**One-click (Claude Desktop, no terminal):** download `feynman-loop.mcpb` from the GitHub
+Releases page and double-click it (or Claude Desktop > Settings > Extensions > Install
+Extension). The API key field is optional; leave it empty for zero-key mode. Needs Python
+3.10+ on your machine. To build the bundle yourself: `./scripts/build_mcpb.sh`.
+
+**Terminal (Claude Code, other MCP hosts, hooks):** use an isolated virtualenv. Do not install
+into a global or conda environment, the optional vector stack (numpy, torch) is sensitive to
+ABI drift.
 
 ```
 python3 -m venv .venv
 .venv/bin/python -m pip install -U pip
-.venv/bin/python -m pip install -e .
+.venv/bin/python -m pip install -e .                    # core: MCP server, pasted-source grounding
+.venv/bin/python -m pip install -e ".[embeddings]"      # adds long-document grounding + web UI
 .venv/bin/feynman-loop init        # configures the MCP server + Claude Code hooks in one step
 ```
 
 `init` also prints the config snippet for any other MCP host (ChatGPT Desktop, Gemini, Cursor).
+Normal pasted sources are grounded directly (the rubric sees the whole text, instantly); the
+`embeddings` extra is only needed for long documents and the web/CLI surfaces.
 
 ## No API key? It still works
 

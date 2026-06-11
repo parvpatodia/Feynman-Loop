@@ -27,5 +27,9 @@ feynman_*.json.imported
 vault/
 *.egg-info/
 
+# Bundle build artifacts (the .mcpb ships via GitHub Releases, not the repo)
+build/
+dist/
+
 # OS
 .DS_Store

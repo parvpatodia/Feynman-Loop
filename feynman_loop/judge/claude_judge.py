@@ -65,6 +65,9 @@ For every "met" or "partial", set "evidence" to a VERBATIM quote from the learne
 downgrades any verdict whose evidence is not found. Leave evidence empty for "missed".
 
 Do NOT credit near-verbatim copying of the source as understanding (that is "partial" at best).
+Judge ideas, not writing: explanations may be voice-typed or informal, and a correct idea in
+casual words is still "met". But naming a term is not knowing it: a point is "met" only if the
+mechanism or relationship behind it is actually conveyed, not just its keyword dropped in.
 For every point that is not "met", write a probe: a question that prompts the learner to retrieve
 the missing idea WITHOUT revealing the answer. Judge only against the listed points; be fair to a
 correct idea expressed in different words."""

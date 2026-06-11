@@ -26,6 +26,17 @@ def _needs_key() -> bool:
     return True
 
 
+def _needs_embeddings() -> bool:
+    """Web/CLI retrieval uses the vector stack; MCP grounds directly and doesn't need it."""
+    try:
+        import chromadb  # noqa: F401
+
+        return False
+    except ImportError:
+        print('This surface needs the embeddings extra: pip install "feynman-loop[embeddings]"')
+        return True
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="feynman-loop", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -57,12 +68,12 @@ def main(argv: list[str] | None = None) -> int:
         flags = (["--context"] if args.context else []) + (["--quiet"] if args.quiet else [])
         return due_main(flags)
     if args.cmd == "check":
-        if _needs_key():
+        if _needs_key() or _needs_embeddings():
             return 1
         from feynman_loop.cli import main as check_main
         return check_main(["feynman-loop", args.source, args.concept])
     if args.cmd == "web":
-        if _needs_key():
+        if _needs_key() or _needs_embeddings():
             return 1
         import uvicorn
         # WHY localhost only: the web app is single-user (one local ledger) and unauthenticated;

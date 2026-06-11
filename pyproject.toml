@@ -11,14 +11,21 @@ license = { file = "LICENSE" }
 requires-python = ">=3.10"
 dependencies = [
   "pydantic>=2.0",
-  "chromadb>=0.4",
-  "sentence-transformers>=2.2",
   "anthropic>=0.39",
   "fastapi>=0.110",
   "uvicorn>=0.27",
   "python-multipart>=0.0.9",
   "pypdf>=4.0",
   "mcp>=1.0",
+]
+
+# WHY optional: the MCP surface grounds normal-sized sources directly (no embeddings), so the
+# heavy vector stack (torch via sentence-transformers) is only needed for long documents and
+# the web/CLI surfaces. Keeping it out of core makes install fast and the one-click bundle small.
+[project.optional-dependencies]
+embeddings = [
+  "chromadb>=0.4",
+  "sentence-transformers>=2.2",
 ]
 
 [project.scripts]

@@ -44,7 +44,7 @@ from feynman_loop.models import (
     TransferResult,
 )
 from feynman_loop.relations import ClaudeRelatedConcepts
-from feynman_loop.retrieval.chroma_store import ChromaRetriever, sentence_transformer_embedder
+from feynman_loop.retrieval.base import RetrievedPassage
 from feynman_loop.retrieval.query_expansion import ClaudeQueryExpander
 from feynman_loop.transfer.claude_transfer import ClaudeTransfer
 from feynman_loop.vault import mermaid_map, sync_vault
@@ -66,6 +66,10 @@ _ROOT = paths.home()
 
 # --- factories (tests override these to inject fakes) ---
 def _make_retriever():
+    # WHY lazy: embeddings (torch) are an optional extra, only needed for long documents. The
+    # common MCP path (a source pasted from chat) grounds directly, with no model load at all.
+    from feynman_loop.retrieval.chroma_store import ChromaRetriever, sentence_transformer_embedder
+
     return ChromaRetriever(
         embed=sentence_transformer_embedder(), collection_name=f"mcp_{uuid.uuid4().hex}"
     )
@@ -142,10 +146,9 @@ def _log_event(*, concept: Concept, kind: str, score: float, missed: list[str],
 
 
 class _Check:
-    def __init__(self, concept, retriever, passages=None):
+    def __init__(self, concept, passages=None):
         self.concept = concept
-        self.retriever = retriever
-        self.passages = passages or []   # zero-key: kept so rubric/transfer quotes are verifiable
+        self.passages = passages or []   # grounding passages; also what quotes are verified against
         self.probe = None
         self.remediation_done = False
         self.transfer_available = False
@@ -157,6 +160,61 @@ class _Check:
 
 
 _CHECKS: dict[str, _Check] = {}
+
+# Sources up to this size are grounded DIRECTLY: the rubric sees the whole text, with no
+# embedding model, no retrieval sampling, and no startup latency. Bigger sources go through
+# the vector retriever (optional "embeddings" extra). Typical pasted sources are well under this.
+_DIRECT_SOURCE_LIMIT = 12_000
+
+# Hard cap on the stored snapshot; protects the ledger from a pathological paste.
+_SNAPSHOT_LIMIT = 100_000
+
+
+def _split_passages(doc_id, doc_label: str, text: str) -> list[RetrievedPassage]:
+    """Split a source into at most 6 passage blocks on paragraph boundaries. WHY whole-text
+    blocks instead of top-k retrieval for normal sources: a rubric built from retrieved chunks
+    can miss sections of the source entirely; seeing all of it yields a more accurate rubric."""
+    paras = [p.strip() for p in text.split("\n\n") if p.strip()] or [text.strip()]
+    blocks: list[str] = []
+    cur = ""
+    for p in paras:
+        if cur and len(cur) + len(p) > 2200:
+            blocks.append(cur)
+            cur = p
+        else:
+            cur = f"{cur}\n\n{p}" if cur else p
+    if cur:
+        blocks.append(cur)
+    if len(blocks) > 6:
+        blocks = blocks[:5] + ["\n\n".join(blocks[5:])]
+    return [RetrievedPassage(doc_id=doc_id, doc_label=doc_label, text=b) for b in blocks]
+
+
+def _ground(doc_id, doc_label: str, text: str, query: str) -> list[RetrievedPassage]:
+    """Produce grounding passages for a source: directly for normal sizes, via the vector
+    retriever for long documents, degrading honestly to the head of the text if the embeddings
+    extra is not installed."""
+    if len(text) <= _DIRECT_SOURCE_LIMIT:
+        return _split_passages(doc_id, doc_label, text)
+    try:
+        retriever = _make_retriever()
+    except Exception:
+        return _split_passages(doc_id, doc_label, text[:_DIRECT_SOURCE_LIMIT])
+    retriever.ingest(doc_id=doc_id, doc_label=doc_label, text=text)
+    return retriever.retrieve(query=query, k=4)
+
+
+def _ensure_passages(chk: _Check) -> None:
+    """Re-derive grounding from the stored source snapshot. This is what makes grounded transfer
+    work after a server restart: the snapshot outlives the process, so nothing is lost."""
+    if chk.passages:
+        return
+    c = chk.concept
+    if not c.source_text or c.source_ref.tier == SourceTier.MODEL_FALLBACK:
+        return
+    chk.passages = _ground(c.source_ref.doc_id or uuid.uuid4(),
+                           c.source_ref.doc_label or f"{c.label} source",
+                           c.source_text, c.source_ref.retrieval_query)
 
 
 # --- zero-key protocol helpers: the host proposes, this code verifies and computes ---
@@ -289,14 +347,13 @@ def start_check(concept: str, source_text: str = "", rebuild: bool = False, dept
     depth_changed = existing is not None and requested_depth != existing.depth
     independent = _independent_judge_available()
 
-    retriever = None
-    passages = []
+    passages: list[RetrievedPassage] = []
     if source_text and source_text.strip():
-        # new source provided -> (re)ground: ingest and rebuild the rubric against it
-        retriever = _make_retriever()
+        # new source provided -> (re)ground against it, and keep the snapshot so grounding
+        # survives restarts (Decision 22)
+        text = source_text.strip()[:_SNAPSHOT_LIMIT]
         doc_id = uuid.uuid4()
         doc_label = f"{concept} source"
-        retriever.ingest(doc_id=doc_id, doc_label=doc_label, text=source_text)
         # WHY: query expansion is an API call; zero-key retrieves with the concept label itself.
         query = _make_expander().expand(concept_label=concept) if independent else concept
         source_ref = SourceRef(
@@ -305,19 +362,27 @@ def start_check(concept: str, source_text: str = "", rebuild: bool = False, dept
             doc_label=doc_label,
             retrieval_query=query,
         )
+        passages = _ground(doc_id, doc_label, text, query)
         # WHY: keep the existing concept id so history/resurfacing stay attached
-        c = existing.model_copy(update={"source_ref": source_ref, "rubric": [], "depth": requested_depth}) \
-            if existing else Concept(label=concept, source_ref=source_ref, depth=requested_depth)
+        update = {"source_ref": source_ref, "rubric": [], "depth": requested_depth, "source_text": text}
+        c = existing.model_copy(update=update) if existing \
+            else Concept(label=concept, source_ref=source_ref, depth=requested_depth, source_text=text)
         if independent:
-            loop_ops.build_concept_rubric(concept=c, retriever=retriever, judge=_make_judge())
-        else:
-            passages = retriever.retrieve(query=query, k=4)  # shown to the host; quotes verified against them
+            c.rubric = _make_judge().build_rubric(concept=c, passages=passages)
     elif existing and existing.rubric and not rebuild and not depth_changed:
         # WHY: returning concept, no new source -> reuse the persisted rubric as-is. Same id, same
-        # history, and start is instant (no model call). NOTE: the vector index is in-memory, so a
-        # previously-grounded concept can't re-retrieve after a restart; the rubric (built from the
-        # source, citations intact) still scores reviews; transfer falls back to knowledge mode.
+        # history, and start is instant (no model call). Grounding for transfer is re-derived
+        # lazily from the stored snapshot when needed (_ensure_passages).
         c = existing
+    elif existing and existing.source_text:
+        # rebuild/depth change with no new source, but a snapshot exists -> stay GROUNDED:
+        # re-derive passages from the snapshot and rebuild the rubric against them.
+        passages = _ground(existing.source_ref.doc_id or uuid.uuid4(),
+                           existing.source_ref.doc_label or f"{concept} source",
+                           existing.source_text, existing.source_ref.retrieval_query)
+        c = existing.model_copy(update={"rubric": [], "depth": requested_depth})
+        if independent:
+            c.rubric = _make_judge().build_rubric(concept=c, passages=passages)
     else:
         source_ref = SourceRef(
             tier=SourceTier.MODEL_FALLBACK,
@@ -326,11 +391,11 @@ def start_check(concept: str, source_text: str = "", rebuild: bool = False, dept
             retrieval_query=concept,
         )
         # WHY on rebuild: keep the concept id (history stays attached) but flip the source tier to
-        # model-fallback, because a no-source rebuild cannot honestly claim the old grounding.
+        # model-fallback, because a no-source, no-snapshot rebuild cannot claim the old grounding.
         c = existing.model_copy(update={"rubric": [], "source_ref": source_ref, "depth": requested_depth}) \
             if existing else Concept(label=concept, source_ref=source_ref, depth=requested_depth)
         if independent:
-            loop_ops.build_concept_rubric(concept=c, retriever=retriever, judge=_make_judge())
+            c.rubric = _make_judge().build_rubric(concept=c, passages=[])
 
     if independent and existing is None and not c.related:
         # graph edges, fetched once at intake; best-effort (a missing edge never blocks a check).
@@ -341,7 +406,7 @@ def start_check(concept: str, source_text: str = "", rebuild: bool = False, dept
             c.related = []
 
     check_id = uuid.uuid4().hex
-    chk = _Check(c, retriever, passages)
+    chk = _Check(c, passages)
     _CHECKS[check_id] = chk
     base = {
         "check_id": check_id,
@@ -551,6 +616,7 @@ def make_transfer(check_id: str) -> dict:
         return {"error": "unknown check_id"}
     if not chk.transfer_available:
         return {"error": "transfer not unlocked yet; the explanation wasn't solid enough"}
+    _ensure_passages(chk)  # restores grounding from the stored snapshot after a restart
 
     if not _independent_judge_available():
         chk.awaiting = "transfer_probe"
@@ -568,9 +634,7 @@ def make_transfer(check_id: str) -> dict:
             ),
         }
 
-    chk.probe = loop_ops.generate_transfer_probe(
-        concept=chk.concept, retriever=chk.retriever, engine=_make_transfer()
-    )
+    chk.probe = _make_transfer().generate_probe(concept=chk.concept, passages=chk.passages)
     chk.remediation_done = False
     return {"question": chk.probe.question, "instruction": _NO_ANSWER}
 
@@ -637,8 +701,8 @@ def score_transfer(check_id: str, answer: str) -> dict:
     remediation_question = None
     if result.transfer_score < loop_ops.REMEDIATION_GATE and not chk.remediation_done and result.missed:
         chk.remediation_done = True
-        chk.probe = loop_ops.generate_remediation_probe(
-            concept=chk.concept, retriever=chk.retriever, engine=_make_transfer(), missed=result.missed
+        chk.probe = _make_transfer().generate_remediation(
+            concept=chk.concept, passages=chk.passages, missed=result.missed
         )
         remediation_question = chk.probe.question
     return {

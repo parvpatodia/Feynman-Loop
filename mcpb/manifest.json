@@ -1,0 +1,55 @@
+{
+  "manifest_version": "0.2",
+  "name": "feynman-loop",
+  "display_name": "Feynman-Loop",
+  "version": "0.1.0",
+  "description": "Explain it back: get judged against your own source and keep a verified knowledge graph of what you actually know.",
+  "long_description": "The understanding layer for AI workflows. You explain a concept in your own words; Feynman-Loop scores it against a fixed rubric grounded in your own source, returns your gaps as questions (never answers), tests whether you can APPLY the concept, and resurfaces it when it is due. Everything is stored in a local ledger and rendered as an Obsidian-compatible knowledge graph. Works with or without an API key: without one, your own chat model judges under a verified-evidence protocol and every score is computed in code.",
+  "author": {
+    "name": "Parv Patodia",
+    "url": "https://github.com/parvpatodia"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/parvpatodia/Feynman-Loop"
+  },
+  "license": "MIT",
+  "keywords": ["learning", "feynman", "spaced-repetition", "understanding", "knowledge-graph"],
+  "server": {
+    "type": "python",
+    "entry_point": "server/main.py",
+    "mcp_config": {
+      "command": "python3",
+      "args": ["${__dirname}/server/main.py"],
+      "env": {
+        "PYTHONPATH": "${__dirname}/server/lib",
+        "ANTHROPIC_API_KEY": "${user_config.anthropic_api_key}"
+      }
+    }
+  },
+  "user_config": {
+    "anthropic_api_key": {
+      "type": "string",
+      "title": "Anthropic API key (optional)",
+      "description": "Leave empty for zero-key mode: your own chat model judges under a verified protocol, with all scores computed in code. With a key, an independent judge model scores instead (strongest).",
+      "sensitive": true,
+      "required": false
+    }
+  },
+  "tools": [
+    { "name": "start_check", "description": "Start an explain-back check on a concept, grounded in source text from the conversation" },
+    { "name": "judge_explanation", "description": "Score the learner's explanation against the concept's fixed rubric; gaps come back as questions" },
+    { "name": "make_transfer", "description": "Generate a novel application challenge once the explanation is solid" },
+    { "name": "score_transfer", "description": "Score the transfer answer; one bounded retry if it falls short" },
+    { "name": "progress", "description": "The persistent understanding ledger: every concept, what is due, the learner profile" },
+    { "name": "journey", "description": "Every past attempt on a concept in the learner's own words" },
+    { "name": "knowledge_map", "description": "The verified knowledge graph as a mermaid diagram plus an Obsidian vault" },
+    { "name": "submit_rubric", "description": "Zero-key protocol: store the host-built rubric after server-side verification" },
+    { "name": "submit_judgment", "description": "Zero-key protocol: submit verdicts; evidence verified and score computed in code" },
+    { "name": "submit_transfer_probe", "description": "Zero-key protocol: store the host-built transfer challenge after verification" }
+  ],
+  "compatibility": {
+    "platforms": ["darwin", "linux"],
+    "runtimes": { "python": ">=3.10" }
+  }
+}

@@ -385,3 +385,64 @@ def test_submit_tools_error_in_api_mode():
     started = srv.start_check("Backpropagation")       # API mode: rubric built by the judge
     assert "error" in srv.submit_rubric(started["check_id"], points=_zk_rubric_points())
     assert "error" in srv.submit_judgment(started["check_id"], [])
+
+
+# --- grounding: direct passages, the stored snapshot, and restart survival ---
+
+def test_split_passages_caps_blocks_and_covers_the_source():
+    from uuid import uuid4
+
+    text = "\n\n".join(f"paragraph {i} " + "x" * 400 for i in range(20))
+    ps = srv._split_passages(uuid4(), "doc", text)
+    assert 1 <= len(ps) <= 6                            # bounded prompt, no retrieval sampling
+    joined = "\n\n".join(p.text for p in ps)
+    assert "paragraph 0" in joined and "paragraph 19" in joined  # nothing dropped
+    assert all(p.doc_label == "doc" for p in ps)
+
+
+def test_long_source_goes_through_the_retriever():
+    s = srv.start_check("Backpropagation", source_text="backprop section. " * 800)  # > direct limit
+    assert s["grounded"] is True                        # FakeRetriever path produced the rubric
+
+
+def test_depth_change_stays_grounded_with_snapshot():
+    a = srv.start_check("Backpropagation", source_text="backprop applies the chain rule recursively.")
+    assert a["grounded"] is True
+    srv._CHECKS.clear()                                 # restart
+
+    b = srv.start_check("Backpropagation", depth="expert")  # depth change, no new source
+    assert b["depth"] == "expert"
+    assert b["grounded"] is True                        # snapshot re-grounded it (was tier-3 before)
+
+
+def test_zero_key_grounding_survives_restart(zero_key):
+    s = srv.start_check("Backpropagation", source_text="backprop applies the chain rule recursively.")
+    cid = s["check_id"]
+    srv.submit_rubric(cid, points=_zk_rubric_points())
+    srv.judge_explanation(cid, _ZK_EXPLANATION)
+    srv.submit_judgment(cid, [
+        {"index": 0, "status": "met", "evidence": "with the chain rule"},
+        {"index": 1, "status": "met", "evidence": "recursively, so every parameter"},
+        {"index": 2, "status": "met", "evidence": "every parameter gets a gradient"},
+        {"index": 3, "status": "met", "evidence": "computes gradients of the loss"},
+    ])
+    srv._CHECKS.clear()                                 # restart: in-memory state gone
+
+    again = srv.start_check("backpropagation")          # reuse: instant, rubric from the ledger
+    assert "action" not in again
+    cid2 = again["check_id"]
+    retell = ("the loss gradient reaches every parameter because backprop applies the chain "
+              "rule recursively, and then the optimizer updates the weights")
+    srv.judge_explanation(cid2, retell)
+    judged = srv.submit_judgment(cid2, [
+        {"index": 0, "status": "met", "evidence": "applies the chain rule recursively"},
+        {"index": 1, "status": "met", "evidence": "recursively"},
+        {"index": 2, "status": "met", "evidence": "reaches every parameter"},
+        {"index": 3, "status": "met", "evidence": "the loss gradient"},
+    ])
+    assert judged["transfer_available"] is True
+
+    q = srv.make_transfer(cid2)
+    assert q["action"] == "make_transfer_in_host"
+    assert q["passages"]                                # grounding rebuilt from the stored snapshot
+    assert "chain rule" in q["passages"][0]["text"]

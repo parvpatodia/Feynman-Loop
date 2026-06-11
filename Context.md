@@ -243,6 +243,26 @@ of what you know. Fix: the ledger renders as a knowledge graph where node status
   Web binds localhost only (single-user by design; multi-user = contribution path).
 - 90 tests green. CONTRIBUTING.md seeds the community work.
 
+**Decision 22 — direct grounding, the source snapshot, and the one-click bundle (2026-06-10).**
+Driven by Parv's adoption pass: terminal install is friction; restarts must lose nothing; the
+rubric should be as accurate as possible.
+- Direct grounding: sources up to 12k chars are split into <=6 passage blocks and used WHOLE.
+  No embedding model, no retrieval sampling, no startup latency on the common MCP path, and the
+  rubric sees the entire source instead of top-k chunks (an accuracy win: retrieved-chunk
+  rubrics could miss sections). Longer sources still go through Chroma, now behind an optional
+  `[embeddings]` extra (torch out of core install); missing extra degrades to the head of the
+  text with an honest message.
+- Source snapshot (amends Decision 9, deliberately): an MCP source is an ephemeral paste, not a
+  document on disk, so no locator can re-find it after a restart. `Concept.source_text` keeps a
+  capped (100k) local snapshot. Result: grounded transfer works after restarts, and a rebuild or
+  depth change now stays GROUNDED instead of falling to tier-3. What restarts still lose: only
+  in-flight check sessions (by design; the host just calls start_check again).
+- Distribution: `mcpb/` + `scripts/build_mcpb.sh` build a one-click Claude Desktop bundle
+  (validated with @anthropic-ai/mcpb; 14MB thanks to the extras split; optional sensitive
+  api-key field in the install dialog; zero-key works with it empty). Listing in Anthropic's
+  in-app directory requires THEIR review: bundle is ready to submit, submission is Parv's call
+  (rotate the exposed key first). Bundle needs python3 >= 3.10 on the user's machine.
+
 **Decision 21 — zero-key mode: evidence-verified host judging (2026-06-10).**
 Problem: requiring an Anthropic/OpenAI key (card on file) kills casual adoption; Parv's ask was
 "connect to the LLM the user already uses, no separate key, without losing accuracy."
