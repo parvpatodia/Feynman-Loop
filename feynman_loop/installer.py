@@ -26,14 +26,20 @@ def copy_hook_assets(home: Path) -> Path:
     return hooks_dir
 
 
-def merge_mcp_into_desktop_config(config_path: Path, *, python: str, home: Path, api_key: str) -> bool:
-    """Add/replace the feynman-loop server entry; everything else is preserved."""
+def merge_mcp_into_desktop_config(config_path: Path, *, python: str, home: Path,
+                                  api_key: str | None) -> bool:
+    """Add/replace the feynman-loop server entry; everything else is preserved.
+    WHY the key is optional: without one, the server runs in zero-key mode (the host model
+    judges under the verified protocol), so setup works with just the LLM the user already has."""
     config = json.loads(config_path.read_text()) if config_path.exists() else {}
     servers = config.setdefault("mcpServers", {})
+    env = {"FEYNMAN_HOME": str(home)}
+    if api_key:
+        env["ANTHROPIC_API_KEY"] = api_key
     servers["feynman-loop"] = {
         "command": python,
         "args": ["-m", "feynman_loop.mcp_server"],
-        "env": {"ANTHROPIC_API_KEY": api_key, "FEYNMAN_HOME": str(home)},
+        "env": env,
     }
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(json.dumps(config, indent=2))
@@ -62,7 +68,7 @@ def generic_mcp_snippet(*, python: str, home: Path) -> str:
         "feynman-loop": {
             "command": python,
             "args": ["-m", "feynman_loop.mcp_server"],
-            "env": {"ANTHROPIC_API_KEY": "<your key>", "FEYNMAN_HOME": str(home)},
+            "env": {"FEYNMAN_HOME": str(home)},
         }
     }, indent=2)
 
@@ -72,7 +78,7 @@ def run_init(*, api_key: str | None = None) -> int:
 
     home = paths.home()
     python = sys.executable
-    key = api_key or os.environ.get("ANTHROPIC_API_KEY") or "REPLACE_WITH_YOUR_ANTHROPIC_KEY"
+    key = api_key or os.environ.get("ANTHROPIC_API_KEY")  # optional: zero-key mode without it
 
     hooks_dir = copy_hook_assets(home)
     print(f"ledger home : {home}")
@@ -92,8 +98,10 @@ def run_init(*, api_key: str | None = None) -> int:
     else:
         print("Claude Code (~/.claude) not found; hooks skipped.")
 
-    if key == "REPLACE_WITH_YOUR_ANTHROPIC_KEY":
-        print("\nNOTE: no ANTHROPIC_API_KEY found; edit the Desktop config and set your key.")
+    if not key:
+        print("\nNo API key found: zero-key mode. Your own chat model judges under a verified "
+              "protocol\n(evidence checked in code, scores computed in code). For the strongest "
+              "judging,\nadd an ANTHROPIC_API_KEY later: feynman-loop init --key sk-ant-...")
 
     # Obsidian: detect and guide; never auto-install third-party software (the security-conscious
     # users this serves would rightly uninstall a tool that does).

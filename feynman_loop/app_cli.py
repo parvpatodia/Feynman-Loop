@@ -13,6 +13,19 @@ import argparse
 import sys
 
 
+def _needs_key() -> bool:
+    """The terminal and web judges call the API directly, so they need a key. Zero-key mode
+    lives in the MCP surface, where the host model does the judging under verification."""
+    from feynman_loop import providers
+
+    if providers.has_api_key():
+        return False
+    print("This surface needs ANTHROPIC_API_KEY (it judges via the API directly).\n"
+          "Zero-key mode works in MCP hosts (Claude Desktop, Claude Code, Cursor, ChatGPT):\n"
+          "run `feynman-loop init` and use the tools from your chat instead.")
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="feynman-loop", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -44,9 +57,13 @@ def main(argv: list[str] | None = None) -> int:
         flags = (["--context"] if args.context else []) + (["--quiet"] if args.quiet else [])
         return due_main(flags)
     if args.cmd == "check":
+        if _needs_key():
+            return 1
         from feynman_loop.cli import main as check_main
         return check_main(["feynman-loop", args.source, args.concept])
     if args.cmd == "web":
+        if _needs_key():
+            return 1
         import uvicorn
         # WHY localhost only: the web app is single-user (one local ledger) and unauthenticated;
         # exposing it on a public interface would share one identity and one API key with everyone.

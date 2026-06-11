@@ -15,12 +15,22 @@ Rules: tests alongside code, `ruff check --select F,E9,B` clean, no API keys or 
 commits. The ledger (SQLite + vault) is the product; the LLM is a swappable component behind the
 `Judge` / `TransferEngine` interfaces.
 
+Judging has two modes (see `mcp_server.py` docstring): an independent API judge when a key is
+set, and zero-key mode where the MCP host model judges under the verified-evidence protocol
+(`verification.py`). Any new judge implementation must keep the evidence rule: credited verdicts
+carry verbatim quotes, verified in code, score computed in code.
+
 ## Good first issues
 
 - **OpenAI judge**: implement `Judge` + `TransferEngine` backed by the OpenAI SDK so ChatGPT
   users can bring their own key (see `feynman_loop/judge/base.py`; mirror `claude_judge.py`,
   test with a fake client like `tests/test_claude_judge.py`).
-- **Gemini judge**: same shape, Google SDK.
+- **Gemini judge**: same shape, Google SDK. Gemini's API has a free tier (no card), which makes
+  this the cheapest independent-judge path.
+- **MCP sampling judge**: when MCP hosts ship `sampling/createMessage` support, route judge
+  calls through the host's own subscription with server-authored prompts: independent-judge
+  prompts with zero keys anywhere. Claude Desktop does not support sampling yet
+  (anthropics/claude-code#1785 tracks Claude Code).
 - **Journey cards**: render a concept's journey (first words vs latest, score arc, memory
   strength) as a shareable image or terminal card.
 - **Rehearsal vs full history**: `loop.is_near_verbatim` compares only the previous attempt;

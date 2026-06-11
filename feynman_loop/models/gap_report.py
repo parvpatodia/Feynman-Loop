@@ -55,6 +55,10 @@ class GapReport(BaseModel):
 
     gaps: list[Gap] = Field(default_factory=list)  # each one grounded in a Citation
 
+    # WHY: how many verdicts claimed credit with evidence the code could not find in the
+    # explanation (each was downgraded). Transparency about the judge, not about the learner.
+    evidence_failures: int = 0
+
     # NOTE: no auto-generated follow-up question in v1. The beat is the grounded gap. Adding a
     # question-generator here would drift toward the "surface the question you didn't ask"
     # interaction we explicitly did NOT choose (the core interaction is explain-it-back).

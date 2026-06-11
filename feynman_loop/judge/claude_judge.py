@@ -25,17 +25,27 @@ from feynman_loop.judge.base import Judge
 from feynman_loop.models import MODEL_FALLBACK_LABEL, Citation, Concept, Gap, GapReport, RubricPoint
 from feynman_loop.providers import judge_model
 from feynman_loop.retrieval.base import RetrievedPassage
+from feynman_loop.verification import STATUS_VALUE, verified_status
 
 # WHY depth shapes the RUBRIC, not the scorer: the bar lives in what a complete explanation must
 # contain. The scorer stays identical; only the criteria change with the learner's stated target.
-_DEPTH_SPECS = {
-    "overview": ("3 to 5", "the big picture: what it is, why it matters, and the main moving "
+# DEPTH_RANGES is the single source for point counts; zero-key mode enforces the minimums in code.
+DEPTH_RANGES = {"overview": (3, 5), "working": (4, 8), "expert": (6, 10)}
+
+_DEPTH_SCOPES = {
+    "overview": ("the big picture: what it is, why it matters, and the main moving "
                  "parts. Do not require step-by-step internals or edge cases."),
-    "working": ("4 to 8", "the essential mechanism: what it is, how it works, and what it "
+    "working": ("the essential mechanism: what it is, how it works, and what it "
                 "connects to (not trivia)."),
-    "expert": ("6 to 10", "expert mastery: the precise mechanism step by step, boundary "
+    "expert": ("expert mastery: the precise mechanism step by step, boundary "
                "conditions, failure modes, and distinctions from neighbouring concepts."),
 }
+
+
+def depth_spec(depth: str) -> tuple[str, str]:
+    """(count phrase, scope sentence) for a depth, defaulting to "working"."""
+    lo, hi = DEPTH_RANGES.get(depth, DEPTH_RANGES["working"])
+    return f"{lo} to {hi}", _DEPTH_SCOPES.get(depth, _DEPTH_SCOPES["working"])
 
 _RUBRIC_SYSTEM = """List the key points a complete, correct explanation of the concept must
 contain, based ONLY on the source passages. Each point is one checkable idea. The learner's
@@ -49,6 +59,10 @@ For each numbered point, return a status:
 - "met": the explanation clearly conveys this idea in the learner's OWN words.
 - "partial": it touches the idea but is vague, incomplete, or mostly restates the source verbatim.
 - "missed": the idea is absent.
+
+For every "met" or "partial", set "evidence" to a VERBATIM quote from the learner's explanation
+(their exact words) that shows the idea; the system verifies the quote appears in the text and
+downgrades any verdict whose evidence is not found. Leave evidence empty for "missed".
 
 Do NOT credit near-verbatim copying of the source as understanding (that is "partial" at best).
 For every point that is not "met", write a probe: a question that prompts the learner to retrieve
@@ -77,14 +91,14 @@ class _CriterionStatus(BaseModel):
     # WHY: a Literal -> the JSON schema enum constrains the model to exactly these three values,
     # so a capitalized/padded variant can't silently miss the score lookup and count as 0.
     status: Literal["met", "partial", "missed"]
+    # WHY: verbatim quote from the LEARNER's text backing the credit; verified in code
+    # (verification.verified_status), so the judge cannot grant credit it cannot point to.
+    evidence: str = ""
     probe: str    # a question targeting this point; shown as the gap when not fully met
 
 
 class _ScoreDraft(BaseModel):
     scores: list[_CriterionStatus]
-
-
-_STATUS_VALUE = {"met": 1.0, "partial": 0.5, "missed": 0.0}
 
 
 class ClaudeJudge(Judge):
@@ -100,7 +114,7 @@ class ClaudeJudge(Judge):
             # model's own knowledge, flagged lower-confidence. Transfer stays the ungameable check.
             return self._build_rubric_from_knowledge(concept)
 
-        count, scope = _DEPTH_SPECS.get(concept.depth, _DEPTH_SPECS["working"])
+        count, scope = depth_spec(concept.depth)
         numbered = "\n\n".join(f"[{i}] {p.text}" for i, p in enumerate(passages))
         user_msg = f"Concept: {concept.label}\n\nSource passages:\n{numbered}"
 
@@ -130,7 +144,7 @@ class ClaudeJudge(Judge):
         return rubric
 
     def _build_rubric_from_knowledge(self, concept: Concept) -> list[RubricPoint]:
-        count, scope = _DEPTH_SPECS.get(concept.depth, _DEPTH_SPECS["working"])
+        count, scope = depth_spec(concept.depth)
         draft: _RubricDraft = self._client.messages.parse(
             model=self._model,
             max_tokens=16000,
@@ -175,16 +189,33 @@ class ClaudeJudge(Judge):
         correct_points: list[str] = []
         gaps: list[Gap] = []
         total = 0.0
+        evidence_failures = 0
         for i, rp in enumerate(rubric):
             s = status_by_index.get(i)
-            value = _STATUS_VALUE.get(s.status, 0.0) if s else 0.0
+            # WHY verified, not trusted: every credited point must carry a verbatim quote from the
+            # learner's text, checked in code. Credit the judge cannot point to is downgraded.
+            status, ok = verified_status(
+                status=s.status if s else "missed",
+                evidence=s.evidence if s else "",
+                text=user_explanation,
+            )
+            if not ok:
+                evidence_failures += 1
+            value = STATUS_VALUE[status]
             total += value
             if value >= 1.0:
                 correct_points.append(rp.criterion)
             else:
                 # WHY: the gap is a probe (a question), never the missing fact verbatim, so copying
                 # feedback back doesn't satisfy the criterion. Citation kept for audit, not displayed.
-                probe = s.probe if (s and s.probe) else f"Can you address: {rp.criterion}?"
+                # Fallbacks never name the criterion; that would hand the learner the point.
+                if s and s.probe:
+                    probe = s.probe
+                elif not ok and s and s.status == "met":
+                    probe = ("This was almost credited, but your explanation didn't clearly "
+                             "contain it. State that part explicitly, in your own words.")
+                else:
+                    probe = "One required point is missing. What else would a complete explanation cover?"
                 gaps.append(Gap(description=probe, citation=rp.citation))
 
         # WHY: understanding is computed in code from per-point statuses, not a holistic guess by
@@ -196,4 +227,5 @@ class ClaudeJudge(Judge):
             understanding_level=understanding_level,
             correct_points=correct_points,
             gaps=gaps,
+            evidence_failures=evidence_failures,
         )

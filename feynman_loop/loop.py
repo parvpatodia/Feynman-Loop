@@ -65,11 +65,29 @@ def run_review(
     store: UserStateStore | None = None,
     now: datetime | None = None,
 ) -> tuple[GapReport, UserState, bool]:  # (report, state, rehearsed)
-    now = now or datetime.now(timezone.utc)
-
     # JUDGE. Score the explanation against the concept's fixed rubric (built once at setup). The
     # understanding score is computed from per-point statuses, so it is accurate and responsive.
     report = judge.evaluate(concept=concept, user_explanation=explanation)
+    state, rehearsed = record_review(
+        concept=concept, user_id=user_id, explanation=explanation,
+        report=report, store=store, now=now,
+    )
+    return report, state, rehearsed
+
+
+def record_review(
+    *,
+    concept: Concept,
+    user_id: UUID,
+    explanation: str,
+    report: GapReport,
+    store: UserStateStore | None = None,
+    now: datetime | None = None,
+) -> tuple[UserState, bool]:  # (state, rehearsed)
+    """Write one judged review into user-state. Split from run_review so a report scored by ANY
+    judge (the API judge, or the host model under the verified zero-key protocol) goes through
+    the same rehearsal detection and the same gated interval logic."""
+    now = now or datetime.now(timezone.utc)
 
     # UPDATE USER-STATE. next_due_at is written HERE, at the END of the review, by the interval
     # logic. The scheduler only reads it later (Decision 10: "due" is a suggestion, not imposed).
@@ -98,7 +116,7 @@ def run_review(
     if store is not None:
         store.put(state)
 
-    return report, state, rehearsed
+    return state, rehearsed
 
 
 def generate_transfer_probe(
@@ -123,10 +141,23 @@ def score_transfer(
 ) -> TransferResult:
     """Score the answer against the grounded rubric, record transfer_level, and pull the concept
     back sooner when transfer is weak."""
-    now = now or datetime.now(timezone.utc)
     result = engine.score_answer(probe=probe, user_answer=user_answer)
+    record_transfer_result(result=result, user_id=user_id, store=store, now=now)
+    return result
+
+
+def record_transfer_result(
+    *,
+    result: TransferResult,
+    user_id: UUID,
+    store: UserStateStore | None = None,
+    now: datetime | None = None,
+) -> None:
+    """Write one scored transfer into user-state. Split from score_transfer for the same reason
+    as record_review: the zero-key path scores in code and must hit identical gating."""
+    now = now or datetime.now(timezone.utc)
     if store is not None:
-        state = store.get(user_id=user_id, concept_id=probe.concept_id)
+        state = store.get(user_id=user_id, concept_id=result.concept_id)
         if state is not None:
             # WHY: transfer_level is its own signal (restating and applying are different things).
             state.transfer_level = result.transfer_score
@@ -140,7 +171,6 @@ def score_transfer(
                 prior_next_due=state.next_due_at,
             )
             store.put(state)
-    return result
 
 
 def generate_remediation_probe(

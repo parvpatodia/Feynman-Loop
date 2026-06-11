@@ -21,8 +21,27 @@ python3 -m venv .venv
 
 `init` also prints the config snippet for any other MCP host (ChatGPT Desktop, Gemini, Cursor).
 
+## No API key? It still works
+
+You do not need an API key to use Feynman-Loop inside an MCP host. With no
+`ANTHROPIC_API_KEY` set, the server runs in **zero-key mode**: the chat model you already pay
+for (Claude, ChatGPT, Gemini, Cursor) does the language work under a strict protocol, and the
+server does the integrity work in code:
+
+- every credited verdict must carry a verbatim quote from YOUR explanation, and the server
+  verifies the quote actually appears there; credit it cannot find is downgraded
+- rubric quotes are verified against your source passages the same way
+- every score is computed in code from the verified statuses, never taken from the model
+- minimum rubric sizes per depth are enforced, so a lazy one-point rubric is rejected
+
+With a key, an independent judge model does the rubric building and scoring instead, which is
+the strongest setup (your own chat model cannot be talked into leniency at all). The ledger
+records which judge scored every event, so your history stays honest about its own strength.
+The terminal and web surfaces call the API directly, so those two do need a key.
+
 Storage: one local SQLite ledger plus a markdown knowledge-graph vault, at `$FEYNMAN_HOME`
-(default `~/.feynman-loop`). Your data never leaves your machine except for judging calls.
+(default `~/.feynman-loop`). Your data never leaves your machine except for judging calls
+(and in zero-key mode, not even that: nothing leaves except what your host chat already sees).
 Cost control: set `FEYNMAN_JUDGE_MODEL` (default `claude-opus-4-8`; `claude-sonnet-4-6` is ~3x
 cheaper) and `FEYNMAN_FAST_MODEL` (default `claude-haiku-4-5`).
 

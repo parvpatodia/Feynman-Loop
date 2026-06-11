@@ -243,6 +243,34 @@ of what you know. Fix: the ledger renders as a knowledge graph where node status
   Web binds localhost only (single-user by design; multi-user = contribution path).
 - 90 tests green. CONTRIBUTING.md seeds the community work.
 
+**Decision 21 — zero-key mode: evidence-verified host judging (2026-06-10).**
+Problem: requiring an Anthropic/OpenAI key (card on file) kills casual adoption; Parv's ask was
+"connect to the LLM the user already uses, no separate key, without losing accuracy."
+- Principle: **the LLM proposes, the code disposes.** Integrity never came from having a second
+  model; it comes from verification. New `verification.py`: every credited verdict (met/partial)
+  must carry a VERBATIM quote from the learner's text; code checks containment (normalized, with
+  a tight 90% in-order fuzzy floor for transcription drift). met without findable evidence ->
+  partial; partial -> missed; unknown status -> missed. Score always computed in code.
+- Zero-key MCP flow (no ANTHROPIC_API_KEY): start_check returns a build_rubric protocol (host
+  writes the rubric; quotes verified against the retrieved passages; depth minimums enforced;
+  host also supplies `related` for the graph) -> submit_rubric. judge_explanation LOCKS the
+  explanation first, then reveals the rubric + judging protocol -> submit_judgment (verdicts
+  verified, score computed, same gated scheduling via loop.record_review). Transfer: host
+  creates the probe under the same verified format (submit_transfer_probe), answer locked, host
+  verdicts verified (submit_judgment); one bounded host-generated remediation. Phase state
+  machine on the check refuses out-of-order submits.
+- The SAME evidence rule now applies to the independent API judge (prompt requires evidence;
+  evaluate() verifies), so accuracy rose in both modes: a sycophantic or hallucinating judge can
+  no longer grant credit it cannot point to. `GapReport.evidence_failures` exposes downgrades.
+- Provenance: `ReviewEvent.judge` = independent | host. The ledger stays honest about which
+  scores had an independent judge. Honest limit, on the record: a lenient HOST can still stretch
+  interpretation within real quotes (it cannot fabricate evidence, skip points, shrink the
+  rubric, or touch the math). With a key, the independent judge closes that too.
+- Key is now optional everywhere in setup (init, Desktop config, generic snippet); terminal +
+  web still need one (they call the API directly) and say so clearly. MCP sampling (judging
+  through the host's own subscription with server-authored prompts) is the planned middle tier
+  the moment hosts support it; Claude Desktop does not today (claude-code#1785 tracks Code).
+
 **Decision 20 — explicit depth modes + safety pass (2026-06-10).**
 - DEPTH is user-set, never inferred (constitution: target level is set by the user; inferring
   depth from explanation style would lower the bar for beginners exactly when it should hold).

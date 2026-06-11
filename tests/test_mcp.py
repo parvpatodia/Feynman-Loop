@@ -72,6 +72,9 @@ def fakes(monkeypatch, tmp_path):
     # so pointing _ROOT at tmp gives the real SQLite ledger, exercised exactly as in production.
     monkeypatch.setattr(srv, "_ROOT", tmp_path)
     monkeypatch.delenv("FEYNMAN_VAULT", raising=False)
+    # WHY pinned True: these tests exercise the independent-judge path; without the pin the mode
+    # would silently follow whether the developer's shell happens to export ANTHROPIC_API_KEY.
+    monkeypatch.setattr(srv, "_independent_judge_available", lambda: True)
     monkeypatch.setattr(srv, "_make_retriever", lambda: _FakeRetriever())
     monkeypatch.setattr(srv, "_make_judge", lambda: _FakeJudge())
     monkeypatch.setattr(srv, "_make_transfer", lambda: _FakeTransfer())
@@ -79,6 +82,21 @@ def fakes(monkeypatch, tmp_path):
     monkeypatch.setattr(srv, "_make_related", lambda: _FakeRelated())
     monkeypatch.setattr(srv, "_make_tagger", lambda: _FakeTagger())
     srv._CHECKS.clear()
+
+
+@pytest.fixture()
+def zero_key(monkeypatch):
+    """No API key: the host judges under the verified protocol. The API factories are booby-trapped
+    so any zero-key path that quietly reaches for the API fails the test loudly."""
+    monkeypatch.setattr(srv, "_independent_judge_available", lambda: False)
+
+    def _boom():
+        raise AssertionError("API factory must not be used in zero-key mode")
+
+    monkeypatch.setattr(srv, "_make_judge", _boom)
+    monkeypatch.setattr(srv, "_make_transfer", _boom)
+    monkeypatch.setattr(srv, "_make_expander", _boom)
+    monkeypatch.setattr(srv, "_make_related", _boom)
 
 
 def test_full_mcp_flow_and_progress():
@@ -225,3 +243,145 @@ def test_progress_includes_learner_profile_and_due_list():
     assert prog["learner"]["reviews"] == 2     # one explain + one transfer event
     assert "insight" in prog["learner"]
     assert "due_now" in prog
+
+
+# --- zero-key mode: the host model judges; the server verifies and computes ---
+
+_ZK_EXPLANATION = ("backprop computes gradients of the loss with the chain rule, recursively, "
+                   "so every parameter gets a gradient")
+
+
+def _zk_rubric_points():
+    # three quotes the (fake) passage really contains, one invented
+    return [
+        {"criterion": "uses the chain rule", "passage_index": 0, "quote": "chain rule recursively"},
+        {"criterion": "applies it layer by layer", "passage_index": 0, "quote": "chain rule recursively"},
+        {"criterion": "gradients reach every parameter", "passage_index": 0, "quote": "this text is in no passage"},
+        {"criterion": "computes gradients of the loss", "passage_index": 0, "quote": "chain rule recursively"},
+    ]
+
+
+def test_zero_key_full_flow(zero_key):
+    started = srv.start_check("Backpropagation", source_text="backprop applies the chain rule recursively.")
+    assert started["action"] == "build_rubric"
+    assert started["grounded"] is True
+    assert started["passages"]                       # the host sees what to ground the rubric in
+    cid = started["check_id"]
+
+    # too few points for the depth -> rejected, phase preserved, host resubmits
+    too_few = srv.submit_rubric(cid, points=_zk_rubric_points()[:2])
+    assert "error" in too_few
+
+    ok = srv.submit_rubric(cid, points=_zk_rubric_points(),
+                           related=["Chain Rule", "Chain Rule", "Gradient Descent"])
+    assert ok["rubric_points"] == 4
+    assert ok["grounded_points"] == 3                # the invented quote was flagged, not trusted
+
+    protocol = srv.judge_explanation(cid, _ZK_EXPLANATION)
+    assert protocol["action"] == "judge_in_host"
+    assert len(protocol["rubric"]) == 4
+    assert "VERBATIM" in protocol["instruction"]
+
+    judged = srv.submit_judgment(cid, [
+        {"index": 0, "status": "met", "evidence": "with the chain rule"},
+        {"index": 1, "status": "met", "evidence": "recursively, so every parameter"},
+        {"index": 2, "status": "met", "evidence": "this evidence is fabricated entirely"},  # -> partial
+        {"index": 3, "status": "met", "evidence": "computes gradients of the loss"},
+    ])
+    assert judged["judge"] == "host-verified"
+    assert judged["evidence_failures"] == 1
+    assert judged["understanding_level"] == round((1 + 1 + 0.5 + 1) / 4, 2)
+    assert judged["transfer_available"] is True
+    assert len(judged["gaps"]) == 1                  # only the downgraded point
+
+    # transfer: host creates the probe, server verifies its grounding, then judges the answer
+    q = srv.make_transfer(cid)
+    assert q["action"] == "make_transfer_in_host"
+    probe = srv.submit_transfer_probe(
+        cid, question="Apply backprop to a two-layer net: which gradient is computed first?",
+        points=[{"criterion": "starts from the output layer", "passage_index": 0,
+                 "quote": "chain rule recursively"}])
+    assert "which gradient" in probe["question"]
+
+    ans = srv.score_transfer(cid, "you start from the output layer and apply the chain rule backwards")
+    assert ans["action"] == "judge_transfer_in_host"
+    scored = srv.submit_judgment(cid, [
+        {"index": 0, "status": "met", "evidence": "start from the output layer"}])
+    assert scored["transfer_score"] == 1.0
+    assert scored["judge"] == "host-verified"
+
+    # the ledger is identical in kind to API mode, with provenance recorded
+    srv._CHECKS.clear()                              # restart
+    prog = srv.progress()
+    assert [c["concept"] for c in prog["concepts"]] == ["Backpropagation"]
+    assert prog["concepts"][0]["transfer_level"] == 1.0
+    events = srv._make_learner_log().events()
+    assert [e.judge for e in events] == ["host", "host"]
+    assert prog["learner"]["reviews"] == 2
+
+
+def test_zero_key_incomplete_verdicts_cannot_inflate(zero_key):
+    started = srv.start_check("Backpropagation", source_text="backprop applies the chain rule recursively.")
+    cid = started["check_id"]
+    srv.submit_rubric(cid, points=_zk_rubric_points())
+    srv.judge_explanation(cid, _ZK_EXPLANATION)
+    # host submits a single verdict: the other three count as missed, never as met
+    judged = srv.submit_judgment(cid, [{"index": 0, "status": "met", "evidence": "with the chain rule"}])
+    assert judged["understanding_level"] == 0.25
+
+
+def test_zero_key_phase_is_enforced(zero_key):
+    started = srv.start_check("Osmosis")               # tier-3, rubric pending
+    cid = started["check_id"]
+    assert started["grounded"] is False
+    assert "error" in srv.submit_judgment(cid, [])     # nothing locked in yet
+    assert "error" in srv.submit_transfer_probe(cid, "a question long enough to pass", points=[])
+    assert "error" in srv.judge_explanation(cid, "x")  # rubric not built yet
+    assert "error" in srv.make_transfer(cid)           # transfer not unlocked
+
+
+def test_zero_key_knowledge_rubric_and_remediation(zero_key):
+    started = srv.start_check("Entropy")
+    cid = started["check_id"]
+    pts = [{"criterion": f"distinct checkable idea number {i}", "passage_index": 0,
+            "quote": "a brief supporting fact"} for i in range(4)]
+    ok = srv.submit_rubric(cid, points=pts, related=["Information Theory"])
+    assert ok["grounded_points"] is None               # nothing to verify against; flagged tier
+    srv.judge_explanation(cid, "entropy measures average surprise of a distribution")
+    judged = srv.submit_judgment(cid, [
+        {"index": i, "status": "met", "evidence": "measures average surprise"} for i in range(4)])
+    assert judged["transfer_available"] is True
+
+    srv.make_transfer(cid)
+    srv.submit_transfer_probe(cid, question="A coin is biased 90/10: what happens to entropy and why?",
+                              points=[{"criterion": "entropy falls as the distribution sharpens",
+                                       "passage_index": 0, "quote": "supporting fact"}])
+    srv.score_transfer(cid, "no idea at all honestly")
+    failed = srv.submit_judgment(cid, [{"index": 0, "status": "missed", "evidence": "", "probe": ""}])
+    assert failed["transfer_score"] == 0.0
+    assert failed["action"] == "make_remediation"      # ONE bounded retry, host-generated
+
+    retry = srv.submit_transfer_probe(cid, question="What does sharpening a distribution do to surprise?",
+                                      points=[{"criterion": "less surprise on average",
+                                               "passage_index": 0, "quote": "fact"}])
+    assert "surprise" in retry["question"]
+    srv.score_transfer(cid, "less surprise on average, so entropy goes down")
+    second = srv.submit_judgment(cid, [
+        {"index": 0, "status": "met", "evidence": "less surprise on average"}])
+    assert "action" not in second                      # no second remediation: bounded
+
+
+def test_zero_key_returning_concept_skips_rubric_build(zero_key):
+    started = srv.start_check("Backpropagation", source_text="backprop applies the chain rule recursively.")
+    srv.submit_rubric(started["check_id"], points=_zk_rubric_points())
+    srv._CHECKS.clear()                                # restart
+
+    again = srv.start_check("backpropagation")
+    assert again["returning_concept"] is True
+    assert "action" not in again                       # stored rubric reused; start is instant
+
+
+def test_submit_tools_error_in_api_mode():
+    started = srv.start_check("Backpropagation")       # API mode: rubric built by the judge
+    assert "error" in srv.submit_rubric(started["check_id"], points=_zk_rubric_points())
+    assert "error" in srv.submit_judgment(started["check_id"], [])

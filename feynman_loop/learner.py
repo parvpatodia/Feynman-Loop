@@ -51,6 +51,10 @@ class ReviewEvent(BaseModel):
     # today. Stored locally; this is the user's growth record, not judge input.
     explanation: str = ""
     rehearsed: bool = False  # near-verbatim repeat of the prior attempt (soft signal, no penalty)
+    # WHY: provenance. "independent" = our API judge scored it; "host" = the user's own host model
+    # under the verified protocol (evidence checked in code, score computed in code, but softer:
+    # the host can be lenient within its quotes). The ledger stays honest about its own strength.
+    judge: Literal["independent", "host"] = "independent"
     at: datetime = Field(default_factory=_utcnow)
 
 

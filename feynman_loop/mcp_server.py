@@ -7,6 +7,15 @@ Run (stdio): python -m feynman_loop.mcp_server
 
 The host must PRESENT the probes/questions to the learner and must NOT answer them itself, the
 whole point is that the learner retrieves the answer. Every tool result restates that.
+
+TWO JUDGING MODES, decided by whether an API key is configured:
+- independent (ANTHROPIC_API_KEY set): our judge model builds rubrics and scores. Strongest.
+- zero-key (no key): the HOST model the user already pays for does the language work under a
+  strict protocol, and THIS SERVER does the integrity work: every credited verdict must carry a
+  verbatim evidence quote that the code verifies (verification.py), rubric sizes are enforced,
+  and every score is computed in code. The host proposes; the code disposes. Softer than an
+  independent judge (a lenient host can stretch within real quotes), so the ledger records the
+  provenance of every event.
 """
 
 from __future__ import annotations
@@ -18,16 +27,28 @@ from datetime import datetime, timezone
 from mcp.server.fastmcp import FastMCP
 
 import feynman_loop.loop as loop_ops
-from feynman_loop import paths
+from feynman_loop import paths, providers
 from feynman_loop.db import stores_for
-from feynman_loop.judge.claude_judge import ClaudeJudge
+from feynman_loop.judge.claude_judge import DEPTH_RANGES, ClaudeJudge, depth_spec
 from feynman_loop.learner import ClaudeMissTagger, ReviewEvent, derive_profile
-from feynman_loop.models import MODEL_FALLBACK_LABEL, Concept, SourceRef, SourceTier
+from feynman_loop.models import (
+    MODEL_FALLBACK_LABEL,
+    Citation,
+    Concept,
+    Gap,
+    GapReport,
+    RubricPoint,
+    SourceRef,
+    SourceTier,
+    TransferProbe,
+    TransferResult,
+)
 from feynman_loop.relations import ClaudeRelatedConcepts
 from feynman_loop.retrieval.chroma_store import ChromaRetriever, sentence_transformer_embedder
 from feynman_loop.retrieval.query_expansion import ClaudeQueryExpander
 from feynman_loop.transfer.claude_transfer import ClaudeTransfer
 from feynman_loop.vault import mermaid_map, sync_vault
+from feynman_loop.verification import STATUS_VALUE, evidence_supported, verified_status
 
 mcp = FastMCP("feynman-loop")
 
@@ -90,6 +111,11 @@ def _make_related():
     return ClaudeRelatedConcepts()
 
 
+def _independent_judge_available() -> bool:
+    # WHY a wrapper: checked per call (not cached at import) and patchable in tests.
+    return providers.has_api_key()
+
+
 def _sync_vault() -> None:
     """Regenerate the knowledge-graph vault; best-effort, never blocks a review."""
     try:
@@ -99,29 +125,151 @@ def _sync_vault() -> None:
 
 
 def _log_event(*, concept: Concept, kind: str, score: float, missed: list[str],
-               explanation: str = "", rehearsed: bool = False) -> None:
-    """Append to the learner ledger; tagging is best-effort and never blocks the review."""
+               explanation: str = "", rehearsed: bool = False,
+               judge: str = "independent") -> None:
+    """Append to the learner ledger; tagging is best-effort and never blocks the review.
+    In zero-key mode the tagger has no client, so the try/except leaves tags empty."""
     try:
         tags = _make_tagger().tag(missed)
     except Exception:
         tags = []
     _make_learner_log().append(
         ReviewEvent(concept_id=concept.id, concept_label=concept.label, kind=kind, score=score,
-                    missed=missed, tags=tags, explanation=explanation, rehearsed=rehearsed)
+                    missed=missed, tags=tags, explanation=explanation, rehearsed=rehearsed,
+                    judge=judge)
     )
     _sync_vault()  # every attempt is reflected in the knowledge graph immediately
 
 
 class _Check:
-    def __init__(self, concept, retriever):
+    def __init__(self, concept, retriever, passages=None):
         self.concept = concept
         self.retriever = retriever
+        self.passages = passages or []   # zero-key: kept so rubric/transfer quotes are verifiable
         self.probe = None
         self.remediation_done = False
         self.transfer_available = False
+        # zero-key protocol phase: None | "rubric" | "judgment" | "transfer_probe" |
+        # "transfer_judgment". The submit_* tools refuse any call that is out of phase, so a host
+        # (or a user steering it) cannot skip a step or judge text the server never saw.
+        self.awaiting = None
+        self.pending_text = ""           # the explanation/answer locked in BEFORE judging starts
 
 
 _CHECKS: dict[str, _Check] = {}
+
+
+# --- zero-key protocol helpers: the host proposes, this code verifies and computes ---
+
+_GENERIC_PROBE = "One required point is missing. What else would a complete explanation cover?"
+
+
+def _points_from_host(points: list, passages, *, lo: int, hi: int) -> list[RubricPoint]:
+    """Validate host-built rubric points. With passages, every quote must actually appear in one
+    (verified by code; the citation is reassigned to the passage that matches). A point whose
+    quote can't be found keeps its criterion but is flagged unverified general knowledge, so the
+    host can't invent grounding. Raises ValueError when too few valid points remain."""
+    built: list[RubricPoint] = []
+    for raw in points or []:
+        if not isinstance(raw, dict):
+            continue
+        criterion = " ".join(str(raw.get("criterion", "")).split())
+        quote = str(raw.get("quote", "")).strip()
+        if len(criterion) < 8:
+            continue  # "knows it" is not a checkable idea; drop trivial criteria
+        citation = Citation(doc_label=MODEL_FALLBACK_LABEL, doc_id=None, quote=quote)
+        if passages:
+            try:
+                idx = int(raw.get("passage_index", 0))
+            except (TypeError, ValueError):
+                idx = 0
+            order = ([idx] + [i for i in range(len(passages)) if i != idx]
+                     if 0 <= idx < len(passages) else list(range(len(passages))))
+            match = next((i for i in order if evidence_supported(passages[i].text, quote)), None)
+            if match is not None:
+                p = passages[match]
+                citation = Citation(doc_label=p.doc_label, doc_id=p.doc_id, quote=quote)
+        built.append(RubricPoint(criterion=criterion, citation=citation))
+    if len(built) < lo:
+        raise ValueError(
+            f"need at least {lo} valid rubric points for this depth, got {len(built)}; "
+            "resubmit the full rubric"
+        )
+    return built[:hi]
+
+
+def _host_verdicts(rubric, verdicts, text: str):
+    """Verify host verdicts against the locked-in text. Returns ([(status, probe)] aligned to the
+    rubric, evidence_failures). Unknown indexes are ignored; absent verdicts count as missed, so
+    an incomplete submission can never inflate the score."""
+    by_index: dict[int, dict] = {}
+    for v in verdicts or []:
+        if isinstance(v, dict):
+            try:
+                by_index[int(v.get("index"))] = v
+            except (TypeError, ValueError):
+                continue
+    out: list[tuple[str, str]] = []
+    failures = 0
+    for i, _rp in enumerate(rubric):
+        v = by_index.get(i, {})
+        status, ok = verified_status(
+            status=str(v.get("status", "missed")).strip().lower(),
+            evidence=str(v.get("evidence", "")),
+            text=text,
+        )
+        if not ok:
+            failures += 1
+        out.append((status, str(v.get("probe", "")).strip()))
+    return out, failures
+
+
+def _report_from_verdicts(chk: _Check, verdicts: list) -> GapReport:
+    """Score in code from verified statuses; identical math to the independent judge."""
+    rubric = chk.concept.rubric
+    statuses, failures = _host_verdicts(rubric, verdicts, chk.pending_text)
+    total, correct, gaps = 0.0, [], []
+    for (status, probe), rp in zip(statuses, rubric, strict=True):
+        value = STATUS_VALUE[status]
+        total += value
+        if value >= 1.0:
+            correct.append(rp.criterion)
+        else:
+            gaps.append(Gap(description=probe or _GENERIC_PROBE, citation=rp.citation))
+    return GapReport(
+        concept_id=chk.concept.id, user_explanation=chk.pending_text,
+        understanding_level=total / len(rubric), correct_points=correct, gaps=gaps,
+        evidence_failures=failures,
+    )
+
+
+def _review_response(chk: _Check, report, state, rehearsed: bool, *, judge: str) -> dict:
+    """One response shape for both judging modes, so the host-facing contract never forks."""
+    if rehearsed:
+        return {
+            "understanding_level": round(report.understanding_level, 2),
+            "rehearsed": True,
+            "instruction": (
+                "This is nearly identical to the learner's previous attempt, so it proves recall "
+                "of their own wording, not understanding. Ask them to RE-EXPRESS it: a new "
+                "example, a different audience, or an analogy they haven't used. Do not repeat "
+                "the gaps and never answer for them."
+            ),
+        }
+    resp = {
+        "understanding_level": round(report.understanding_level, 2),
+        "correct_points": report.correct_points,
+        "gaps": [{"probe": g.description, "source": g.citation.doc_label} for g in report.gaps],
+        "next_due": state.next_due_at.strftime("%Y-%m-%d") if state.next_due_at else "",
+        "transfer_available": chk.transfer_available,
+        "grounded": chk.concept.source_ref.tier != SourceTier.MODEL_FALLBACK,
+        "instruction": _NO_ANSWER,
+    }
+    if judge == "host":
+        resp["judge"] = "host-verified"
+    if report.evidence_failures:
+        resp["evidence_failures"] = report.evidence_failures
+    return resp
 
 
 @mcp.tool()
@@ -139,32 +287,38 @@ def start_check(concept: str, source_text: str = "", rebuild: bool = False, dept
     requested_depth = depth if depth in ("overview", "working", "expert") \
         else (existing.depth if existing else "working")
     depth_changed = existing is not None and requested_depth != existing.depth
+    independent = _independent_judge_available()
 
+    retriever = None
+    passages = []
     if source_text and source_text.strip():
         # new source provided -> (re)ground: ingest and rebuild the rubric against it
         retriever = _make_retriever()
         doc_id = uuid.uuid4()
         doc_label = f"{concept} source"
         retriever.ingest(doc_id=doc_id, doc_label=doc_label, text=source_text)
+        # WHY: query expansion is an API call; zero-key retrieves with the concept label itself.
+        query = _make_expander().expand(concept_label=concept) if independent else concept
         source_ref = SourceRef(
             tier=SourceTier.UPLOADED,
             doc_id=doc_id,
             doc_label=doc_label,
-            retrieval_query=_make_expander().expand(concept_label=concept),
+            retrieval_query=query,
         )
         # WHY: keep the existing concept id so history/resurfacing stay attached
         c = existing.model_copy(update={"source_ref": source_ref, "rubric": [], "depth": requested_depth}) \
             if existing else Concept(label=concept, source_ref=source_ref, depth=requested_depth)
-        loop_ops.build_concept_rubric(concept=c, retriever=retriever, judge=_make_judge())
+        if independent:
+            loop_ops.build_concept_rubric(concept=c, retriever=retriever, judge=_make_judge())
+        else:
+            passages = retriever.retrieve(query=query, k=4)  # shown to the host; quotes verified against them
     elif existing and existing.rubric and not rebuild and not depth_changed:
         # WHY: returning concept, no new source -> reuse the persisted rubric as-is. Same id, same
         # history, and start is instant (no model call). NOTE: the vector index is in-memory, so a
         # previously-grounded concept can't re-retrieve after a restart; the rubric (built from the
         # source, citations intact) still scores reviews; transfer falls back to knowledge mode.
-        retriever = None
         c = existing
     else:
-        retriever = None
         source_ref = SourceRef(
             tier=SourceTier.MODEL_FALLBACK,
             doc_id=None,
@@ -175,36 +329,129 @@ def start_check(concept: str, source_text: str = "", rebuild: bool = False, dept
         # model-fallback, because a no-source rebuild cannot honestly claim the old grounding.
         c = existing.model_copy(update={"rubric": [], "source_ref": source_ref, "depth": requested_depth}) \
             if existing else Concept(label=concept, source_ref=source_ref, depth=requested_depth)
-        loop_ops.build_concept_rubric(concept=c, retriever=retriever, judge=_make_judge())
+        if independent:
+            loop_ops.build_concept_rubric(concept=c, retriever=retriever, judge=_make_judge())
 
-    if existing is None and not c.related:
-        # graph edges, fetched once at intake; best-effort (a missing edge never blocks a check)
+    if independent and existing is None and not c.related:
+        # graph edges, fetched once at intake; best-effort (a missing edge never blocks a check).
+        # Zero-key: the host supplies related names in submit_rubric instead.
         try:
             c.related = _make_related().related_to(c.label)
         except Exception:
             c.related = []
 
-    _make_concept_store().put(c)
-    _sync_vault()  # the node appears on the map at intake, as "untested"
     check_id = uuid.uuid4().hex
-    _CHECKS[check_id] = _Check(c, retriever)
-    return {
+    chk = _Check(c, retriever, passages)
+    _CHECKS[check_id] = chk
+    base = {
         "check_id": check_id,
         "concept": c.label,
         "depth": c.depth,
         "grounded": c.source_ref.tier != SourceTier.MODEL_FALLBACK,
         "returning_concept": existing is not None,
-        "instruction": "Ask the learner to explain this concept in their own words, then call judge_explanation.",
+    }
+
+    if c.rubric:
+        # rubric ready: the independent judge built it, or a returning concept reused its own
+        _make_concept_store().put(c)
+        _sync_vault()  # the node appears on the map at intake, as "untested"
+        return {
+            **base,
+            "instruction": "Ask the learner to explain this concept in their own words, then call judge_explanation.",
+        }
+
+    # zero-key: the HOST builds the rubric now, under verification. The concept is persisted only
+    # when submit_rubric accepts it, so no half-built concept ever enters the ledger.
+    chk.awaiting = "rubric"
+    lo, _hi = DEPTH_RANGES.get(c.depth, DEPTH_RANGES["working"])
+    count, scope = depth_spec(c.depth)
+    grounding = (
+        "Each point: 'criterion' (one checkable idea), 'passage_index' (the numbered passage "
+        "grounding it), 'quote' (VERBATIM from that passage; the server verifies every quote "
+        "and flags any it cannot find)."
+        if passages else
+        "There is no source, so ground each point in your own knowledge: set 'quote' to a brief "
+        "supporting fact and 'passage_index' to 0; points are flagged as unverified general knowledge."
+    )
+    return {
+        **base,
+        "mode": "zero-key: you are the judging model; the server verifies evidence and computes all scores",
+        "action": "build_rubric",
+        "passages": [{"index": i, "text": p.text} for i, p in enumerate(passages)],
+        "instruction": (
+            "No API key is configured, so YOU are the judging model under a verified protocol. "
+            f"Build the scoring rubric NOW, silently, before the learner explains: {count} points "
+            f"({lo} minimum) covering {scope} {grounding} "
+            "Also include 'related': 3 to 6 directly related concept names. "
+            "Call submit_rubric, then ask the learner to explain. Never show them the rubric."
+        ),
+    }
+
+
+@mcp.tool()
+def submit_rubric(check_id: str, points: list[dict], related: list[str] | None = None) -> dict:
+    """Zero-key mode only: store the rubric YOU built after start_check returned action
+    "build_rubric". points = [{"criterion", "passage_index", "quote"}]; related = 3-6 related
+    concept names. The server verifies every quote and enforces the depth's minimum point count."""
+    chk = _CHECKS.get(check_id)
+    if chk is None:
+        return {"error": "unknown check_id; call start_check first"}
+    if chk.awaiting != "rubric":
+        return {"error": "not awaiting a rubric; this tool only follows a start_check that asked for one"}
+    lo, hi = DEPTH_RANGES.get(chk.concept.depth, DEPTH_RANGES["working"])
+    try:
+        chk.concept.rubric = _points_from_host(points, chk.passages, lo=lo, hi=hi)
+    except ValueError as e:
+        return {"error": str(e)}  # awaiting stays "rubric": fix and resubmit
+    if not chk.concept.related and related:
+        # WHY sanitized: graph node names come from the host here; cap and trim so a runaway
+        # list or a paragraph-sized "name" can't pollute the vault.
+        clean = [" ".join(str(r).split())[:60] for r in related if str(r).strip()]
+        chk.concept.related = list(dict.fromkeys(clean))[:6]
+    chk.awaiting = None
+    _make_concept_store().put(chk.concept)
+    _sync_vault()  # the node appears on the map at intake, as "untested"
+    verified = sum(1 for rp in chk.concept.rubric if rp.citation.doc_label != MODEL_FALLBACK_LABEL)
+    return {
+        "rubric_points": len(chk.concept.rubric),
+        "grounded_points": verified if chk.passages else None,
+        "instruction": ("Rubric stored. Ask the learner to explain the concept in their own "
+                        "words, then call judge_explanation with their explanation."),
     }
 
 
 @mcp.tool()
 def judge_explanation(check_id: str, explanation: str) -> dict:
-    """Score the learner's explanation against the concept's key points. Returns the gaps as PROBES
-    (questions). Relay the probes to the learner; do NOT answer them yourself."""
+    """Score the learner's explanation against the concept's fixed rubric. Returns the gaps as
+    PROBES (questions). Relay the probes to the learner; do NOT answer them yourself. In zero-key
+    mode this instead locks the explanation in and returns a judging protocol for YOU to execute;
+    follow it and call submit_judgment."""
     chk = _CHECKS.get(check_id)
     if chk is None:
         return {"error": "unknown check_id; call start_check first"}
+    if chk.awaiting == "rubric":
+        return {"error": "rubric not built yet; finish submit_rubric first"}
+
+    if not _independent_judge_available():
+        # WHY locked first: the explanation is stored BEFORE the rubric/protocol is revealed, so
+        # the text being judged can never be tailored to what the judge is about to look for.
+        chk.pending_text = explanation
+        chk.awaiting = "judgment"
+        return {
+            "action": "judge_in_host",
+            "rubric": [{"index": i, "criterion": rp.criterion}
+                       for i, rp in enumerate(chk.concept.rubric)],
+            "instruction": (
+                "Judge the locked-in explanation STRICTLY against each numbered point NOW. For "
+                "each index return: 'status' (met/partial/missed; near-verbatim copying of the "
+                "source is partial at best), 'evidence' (for met/partial, a VERBATIM quote from "
+                "the LEARNER'S explanation; the server verifies it and downgrades any credit it "
+                "cannot find), 'probe' (for points not met, a question that prompts the learner "
+                "to retrieve the idea WITHOUT revealing it). Call submit_judgment with all "
+                "verdicts. Do not soften: an inflated score destroys this record's value."
+            ),
+        }
+
     report, state, rehearsed = loop_ops.run_review(
         concept=chk.concept, user_id=_make_identity().user_id(), explanation=explanation,
         judge=_make_judge(), store=_make_store(),
@@ -216,37 +463,111 @@ def judge_explanation(check_id: str, explanation: str) -> dict:
     missed = [rp.criterion for rp in chk.concept.rubric if rp.criterion not in met]
     _log_event(concept=chk.concept, kind="explain", score=report.understanding_level,
                missed=missed, explanation=explanation, rehearsed=rehearsed)
-    if rehearsed:
-        return {
-            "understanding_level": round(report.understanding_level, 2),
-            "rehearsed": True,
-            "instruction": (
-                "This is nearly identical to the learner's previous attempt, so it proves recall "
-                "of their own wording, not understanding. Ask them to RE-EXPRESS it: a new "
-                "example, a different audience, or an analogy they haven't used. Do not repeat "
-                "the gaps and never answer for them."
-            ),
+    return _review_response(chk, report, state, rehearsed, judge="independent")
+
+
+@mcp.tool()
+def submit_judgment(check_id: str, verdicts: list[dict]) -> dict:
+    """Zero-key mode only: submit the verdicts YOU produced after judge_explanation or
+    score_transfer returned a judging protocol. verdicts = [{"index", "status", "evidence",
+    "probe"}]. The server verifies every evidence quote and computes the score in code."""
+    chk = _CHECKS.get(check_id)
+    if chk is None:
+        return {"error": "unknown check_id; call start_check first"}
+
+    if chk.awaiting == "judgment":
+        report = _report_from_verdicts(chk, verdicts)
+        state, rehearsed = loop_ops.record_review(
+            concept=chk.concept, user_id=_make_identity().user_id(),
+            explanation=chk.pending_text, report=report, store=_make_store(),
+        )
+        chk.transfer_available = report.understanding_level >= loop_ops.TRANSFER_GATE
+        chk.probe = None
+        chk.awaiting = None
+        met = set(report.correct_points)
+        missed = [rp.criterion for rp in chk.concept.rubric if rp.criterion not in met]
+        _log_event(concept=chk.concept, kind="explain", score=report.understanding_level,
+                   missed=missed, explanation=chk.pending_text, rehearsed=rehearsed,
+                   judge="host")
+        return _review_response(chk, report, state, rehearsed, judge="host")
+
+    if chk.awaiting == "transfer_judgment":
+        rubric = chk.probe.rubric
+        statuses, failures = _host_verdicts(rubric, verdicts, chk.pending_text)
+        total, met, missed_points = 0.0, [], []
+        for (status, _probe), rp in zip(statuses, rubric, strict=True):
+            value = STATUS_VALUE[status]
+            total += value
+            if value >= 1.0:
+                met.append(rp.criterion)
+            else:
+                missed_points.append(rp)
+        result = TransferResult(
+            concept_id=chk.probe.concept_id, question=chk.probe.question,
+            user_answer=chk.pending_text, transfer_score=total / len(rubric),
+            met=met, missed=missed_points,
+        )
+        loop_ops.record_transfer_result(
+            result=result, user_id=_make_identity().user_id(), store=_make_store(),
+        )
+        chk.awaiting = None
+        _log_event(concept=chk.concept, kind="transfer", score=result.transfer_score,
+                   missed=[m.criterion for m in result.missed], explanation=chk.pending_text,
+                   judge="host")
+        resp = {
+            "transfer_score": round(result.transfer_score, 2),
+            "met": result.met,
+            "missed": [{"criterion": m.criterion, "source": m.citation.doc_label}
+                       for m in result.missed],
+            "judge": "host-verified",
+            "instruction": _NO_ANSWER,
         }
-    return {
-        "understanding_level": round(report.understanding_level, 2),
-        "correct_points": report.correct_points,
-        "gaps": [{"probe": g.description, "source": g.citation.doc_label} for g in report.gaps],
-        "next_due": state.next_due_at.strftime("%Y-%m-%d") if state.next_due_at else "",
-        "transfer_available": chk.transfer_available,
-        "grounded": chk.concept.source_ref.tier != SourceTier.MODEL_FALLBACK,
-        "instruction": _NO_ANSWER,
-    }
+        if failures:
+            resp["evidence_failures"] = failures
+        if (result.transfer_score < loop_ops.REMEDIATION_GATE
+                and not chk.remediation_done and result.missed):
+            # one bounded retry, generated by the host under the same verified-probe protocol
+            chk.remediation_done = True
+            chk.awaiting = "transfer_probe"
+            resp["action"] = "make_remediation"
+            resp["instruction"] = (
+                "The learner fell short. Silently create ONE narrower retry focused ONLY on the "
+                "missed points: call submit_transfer_probe with a new question and 1 to 3 points "
+                "targeting them, then relay the question. Never answer it. "
+            ) + _NO_ANSWER
+        return resp
+
+    return {"error": "nothing awaiting judgment; follow a judging protocol from "
+                     "judge_explanation or score_transfer first"}
 
 
 @mcp.tool()
 def make_transfer(check_id: str) -> dict:
     """Generate a transfer challenge (a novel application question) once the explanation is solid.
-    Relay the question to the learner; do not answer it."""
+    Relay the question to the learner; do not answer it. In zero-key mode this returns a protocol
+    for YOU to create the challenge; follow it and call submit_transfer_probe."""
     chk = _CHECKS.get(check_id)
     if chk is None:
         return {"error": "unknown check_id"}
     if not chk.transfer_available:
         return {"error": "transfer not unlocked yet; the explanation wasn't solid enough"}
+
+    if not _independent_judge_available():
+        chk.awaiting = "transfer_probe"
+        chk.remediation_done = False
+        return {
+            "action": "make_transfer_in_host",
+            "passages": [{"index": i, "text": p.text} for i, p in enumerate(chk.passages)],
+            "instruction": (
+                "Silently create the transfer challenge NOW: ONE novel application question the "
+                "source does not directly answer (a new scenario, a prediction, an edge case, or "
+                "a debugging task), plus 1 to 4 rubric points in submit_rubric's format "
+                "('criterion', 'passage_index', 'quote'; without passages, 'quote' is a brief "
+                "supporting fact). Call submit_transfer_probe, then relay the question it "
+                "returns. Never answer it."
+            ),
+        }
+
     chk.probe = loop_ops.generate_transfer_probe(
         concept=chk.concept, retriever=chk.retriever, engine=_make_transfer()
     )
@@ -255,14 +576,58 @@ def make_transfer(check_id: str) -> dict:
 
 
 @mcp.tool()
+def submit_transfer_probe(check_id: str, question: str, points: list[dict]) -> dict:
+    """Zero-key mode only: store the transfer challenge YOU created after make_transfer (or a
+    remediation request) returned a protocol. The server verifies the rubric quotes; the question
+    is then relayed to the learner."""
+    chk = _CHECKS.get(check_id)
+    if chk is None:
+        return {"error": "unknown check_id"}
+    if chk.awaiting != "transfer_probe":
+        return {"error": "not awaiting a transfer challenge; call make_transfer first"}
+    question = " ".join(question.split())
+    if len(question) < 15:
+        return {"error": "question too short to be a real challenge; resubmit"}
+    try:
+        rubric = _points_from_host(points, chk.passages, lo=1, hi=4)
+    except ValueError as e:
+        return {"error": str(e)}
+    chk.probe = TransferProbe(concept_id=chk.concept.id, question=question, rubric=rubric)
+    chk.awaiting = None
+    return {
+        "question": question,
+        "instruction": ("Relay this question to the learner and collect THEIR answer, then call "
+                        "score_transfer with it. ") + _NO_ANSWER,
+    }
+
+
+@mcp.tool()
 def score_transfer(check_id: str, answer: str) -> dict:
     """Score the learner's answer to the transfer challenge. May return one narrower retry question
-    (remediation_question) if they fell short; relay it without answering."""
+    (remediation_question) if they fell short; relay it without answering. In zero-key mode this
+    locks the answer in and returns a judging protocol; follow it and call submit_judgment."""
     chk = _CHECKS.get(check_id)
     if chk is None:
         return {"error": "unknown check_id"}
     if chk.probe is None:
         return {"error": "no transfer to score; call make_transfer first"}
+
+    if not _independent_judge_available():
+        chk.pending_text = answer
+        chk.awaiting = "transfer_judgment"
+        return {
+            "action": "judge_transfer_in_host",
+            "rubric": [{"index": i, "criterion": rp.criterion}
+                       for i, rp in enumerate(chk.probe.rubric)],
+            "instruction": (
+                "Judge the locked-in transfer answer STRICTLY against each numbered point NOW. "
+                "For each index return: 'status' (met/partial/missed), 'evidence' (for "
+                "met/partial, a VERBATIM quote from the LEARNER'S answer; the server verifies "
+                "it), 'probe' (optional here). Call submit_judgment with all verdicts. Do not "
+                "soften the verdicts."
+            ),
+        }
+
     result = loop_ops.score_transfer(
         probe=chk.probe, user_id=_make_identity().user_id(), user_answer=answer,
         engine=_make_transfer(), store=_make_store(),

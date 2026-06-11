@@ -93,6 +93,10 @@ def test_build_rubric_from_knowledge_when_no_source():
     assert rubric[0].citation.doc_id is None
 
 
+_EXPLANATION = ("Backprop computes gradients via the chain rule, "
+                "and a separate optimizer applies the weight update.")
+
+
 def test_evaluate_score_is_computed_from_statuses():
     rubric = [
         RubricPoint(criterion="A", citation=Citation(doc_label="d", quote="qa")),
@@ -100,17 +104,40 @@ def test_evaluate_score_is_computed_from_statuses():
         RubricPoint(criterion="C", citation=Citation(doc_label="d", quote="qc")),
     ]
     score_draft = _ScoreDraft(scores=[
-        _CriterionStatus(index=0, status="met", probe=""),
-        _CriterionStatus(index=1, status="partial", probe="What about B?"),
+        _CriterionStatus(index=0, status="met", evidence="computes gradients via the chain rule", probe=""),
+        _CriterionStatus(index=1, status="partial", evidence="a separate optimizer", probe="What about B?"),
         _CriterionStatus(index=2, status="missed", probe="What about C?"),
     ])
     judge = ClaudeJudge(client=_FakeClient(score_draft=score_draft))
-    report = judge.evaluate(concept=_concept(rubric=rubric), user_explanation="...")
+    report = judge.evaluate(concept=_concept(rubric=rubric), user_explanation=_EXPLANATION)
 
     assert abs(report.understanding_level - (1.0 + 0.5 + 0.0) / 3) < 1e-9  # computed, not guessed
     assert report.correct_points == ["A"]                                 # only the "met" point
     assert [g.description for g in report.gaps] == ["What about B?", "What about C?"]  # probes, not answers
     assert report.gaps[0].citation.quote == "qb"                          # citation retained for audit
+    assert report.evidence_failures == 0
+
+
+def test_evaluate_downgrades_credit_without_evidence():
+    # the judge proposes; the code verifies. "met" backed by a quote that is not in the learner's
+    # text drops to partial; "partial" with no findable evidence drops to missed.
+    rubric = [
+        RubricPoint(criterion="chain rule computes the gradients", citation=Citation(doc_label="d", quote="qa")),
+        RubricPoint(criterion="optimizer applies the update", citation=Citation(doc_label="d", quote="qb")),
+    ]
+    score_draft = _ScoreDraft(scores=[
+        _CriterionStatus(index=0, status="met", evidence="this quote was never written by the learner", probe=""),
+        _CriterionStatus(index=1, status="partial", evidence="also not in the text", probe="Who updates the weights?"),
+    ])
+    judge = ClaudeJudge(client=_FakeClient(score_draft=score_draft))
+    report = judge.evaluate(concept=_concept(rubric=rubric), user_explanation=_EXPLANATION)
+
+    assert abs(report.understanding_level - (0.5 + 0.0) / 2) < 1e-9
+    assert report.correct_points == []
+    assert report.evidence_failures == 2
+    # the downgraded "met" still produces a probe, and it never names the criterion
+    assert "chain rule" not in report.gaps[0].description
+    assert "own words" in report.gaps[0].description
 
 
 def test_evaluate_requires_a_rubric():
