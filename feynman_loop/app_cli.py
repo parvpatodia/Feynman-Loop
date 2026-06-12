@@ -61,6 +61,9 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("mcp", help="run the MCP server (stdio)")
 
+    p_exp = sub.add_parser("export", help="dump the full ledger as JSON (backup/portability)")
+    p_exp.add_argument("--out", default=None, help="write to a file instead of stdout")
+
     args = parser.parse_args(argv)
 
     if args.cmd == "init":
@@ -87,6 +90,20 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "mcp":
         from feynman_loop.mcp_server import mcp
         mcp.run()
+        return 0
+    if args.cmd == "export":
+        import json
+        from pathlib import Path
+
+        from feynman_loop import paths
+        from feynman_loop.db import export_ledger
+
+        dump = json.dumps(export_ledger(paths.home()), indent=2)
+        if args.out:
+            Path(args.out).write_text(dump)
+            print(f"wrote {args.out}")
+        else:
+            print(dump)
         return 0
     return 2
 

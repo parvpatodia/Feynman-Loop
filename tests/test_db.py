@@ -116,3 +116,24 @@ def test_has_api_key_rejects_placeholder_and_blank(monkeypatch):
     # an MCP host that fails to substitute the manifest template must not select independent mode
     monkeypatch.setenv("ANTHROPIC_API_KEY", "${user_config.anthropic_api_key}")
     assert providers.has_api_key() is False
+
+
+def test_export_ledger_contains_everything(tmp_path):
+    import json as _json
+
+    from feynman_loop.db import export_ledger, stores_for
+
+    stores = stores_for(tmp_path)
+    c = _concept("Backpropagation")
+    stores.concepts.put(c)
+    uid = stores.identity.user_id()
+    stores.states.put(UserState(concept_id=c.id, user_id=uid, understanding_level=0.7))
+    stores.events.append(ReviewEvent(concept_id=c.id, concept_label=c.label,
+                                     kind="explain", score=0.7))
+
+    dump = export_ledger(tmp_path)
+    as_json = _json.dumps(dump)             # must be plain-JSON serializable, no custom types
+    assert "Backpropagation" in as_json
+    assert dump["user_id"] == str(uid)
+    assert len(dump["concepts"]) == 1 and len(dump["states"]) == 1 and len(dump["events"]) == 1
+    assert dump["feynman_loop_export"] == 1  # format version for future importers

@@ -1,0 +1,53 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Full suite with the embeddings extra: what contributors run locally (CONTRIBUTING).
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: python -m pip install -U pip
+      - run: pip install -e ".[embeddings]" pytest ruff httpx
+      - run: ruff check --select F,E9,B feynman_loop tests
+      - run: pytest -q
+
+  # The slim-install promise: the MCP server must import and pass its tests with CORE deps only.
+  # This is the configuration every zero-key bundle user runs; if it breaks, the bundle breaks.
+  core-install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -U pip
+      - run: pip install -e . pytest
+      - run: python -c "import feynman_loop.mcp_server; print('core import ok')"
+      - run: pytest -q --ignore=tests/test_chroma_store.py --ignore=tests/test_web.py
+
+  # Supply-chain advisory: surfaces known CVEs in the dependency tree. Non-blocking on purpose
+  # (a transitive CVE must not freeze all development), but visible on every run.
+  audit:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -U pip pip-audit
+      - run: pip install -e ".[embeddings]"
+      - run: pip-audit

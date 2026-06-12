@@ -171,6 +171,17 @@ class _Check:
 
 _CHECKS: dict[str, _Check] = {}
 
+# WHY a cap: a Desktop-launched server lives for weeks, and every start_check would otherwise
+# leak a _Check (plus its passages) forever. Checks are transient by design; the ledger is the
+# durable record, so evicting the oldest in-flight check loses nothing durable.
+_CHECKS_CAP = 64
+
+
+def _register_check(check_id: str, chk: _Check) -> None:
+    _CHECKS[check_id] = chk
+    while len(_CHECKS) > _CHECKS_CAP:
+        _CHECKS.pop(next(iter(_CHECKS)))  # dicts are insertion-ordered: drop the oldest
+
 # Sources up to this size are grounded DIRECTLY: the rubric sees the whole text, with no
 # embedding model, no retrieval sampling, and no startup latency. Bigger sources go through
 # the vector retriever (optional "embeddings" extra). Typical pasted sources are well under this.
@@ -434,7 +445,7 @@ def start_check(concept: str, source_text: str = "", rebuild: bool = False, dept
 
     check_id = uuid.uuid4().hex
     chk = _Check(c, passages)
-    _CHECKS[check_id] = chk
+    _register_check(check_id, chk)
     base = {
         "check_id": check_id,
         "concept": c.label,

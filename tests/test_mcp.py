@@ -579,3 +579,12 @@ def test_zero_key_grounding_survives_restart(zero_key):
     assert q["action"] == "make_transfer_in_host"
     assert q["passages"]                                # grounding rebuilt from the stored snapshot
     assert "chain rule" in q["passages"][0]["text"]
+
+
+def test_in_flight_checks_are_capped():
+    # a weeks-old desktop server must not grow without bound; the ledger is the durable record
+    first = srv.start_check("Concept Zero")["check_id"]
+    for i in range(srv._CHECKS_CAP + 5):
+        srv.start_check(f"Concept {i + 1}")
+    assert len(srv._CHECKS) == srv._CHECKS_CAP
+    assert first not in srv._CHECKS                    # oldest evicted

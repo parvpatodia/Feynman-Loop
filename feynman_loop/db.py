@@ -73,6 +73,11 @@ class SqliteUserStateStore:
                 (str(state.user_id), str(state.concept_id), state.model_dump_json()),
             )
 
+    def all(self) -> list[UserState]:
+        with _connect(self._path) as conn:
+            rows = conn.execute("SELECT data FROM user_state").fetchall()
+        return [UserState.model_validate(json.loads(r[0])) for r in rows]
+
 
 class SqliteConceptStore:
     def __init__(self, db_path: Path) -> None:
@@ -175,3 +180,20 @@ def stores_for(root: Path) -> LedgerStores:
         concepts=SqliteConceptStore(db_path),
         events=SqliteLearnerLog(db_path),
     )
+
+
+def export_ledger(root: Path) -> dict:
+    """The full ledger as plain JSON: concepts (rubrics, snapshots), per-concept state, every
+    review event, and the local identity. WHY this exists: the ledger is the product, and data
+    a user cannot take with them is data held hostage. Local-first means one-command export."""
+    from datetime import datetime, timezone
+
+    stores = stores_for(root)
+    return {
+        "feynman_loop_export": 1,  # format version for future importers
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "user_id": str(stores.identity.user_id()),
+        "concepts": [c.model_dump(mode="json") for c in stores.concepts.all()],
+        "states": [s.model_dump(mode="json") for s in stores.states.all()],
+        "events": [e.model_dump(mode="json") for e in stores.events.events()],
+    }
