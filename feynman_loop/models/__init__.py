@@ -37,6 +37,7 @@ __all__ = [
     "GapReport",
     "RubricPoint",
     "MODEL_FALLBACK_LABEL",
+    "SNAPSHOT_LIMIT",
     "TransferProbe",
     "TransferResult",
 ]

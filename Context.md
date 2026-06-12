@@ -243,6 +243,19 @@ of what you know. Fix: the ledger renders as a knowledge graph where node status
   Web binds localhost only (single-user by design; multi-user = contribution path).
 - 90 tests green. CONTRIBUTING.md seeds the community work.
 
+**Decision 25 — review-hardening pass + the deferred judging seam (2026-06-10).**
+A 9-angle adversarial review (each finding independently verified; 3 clusters refuted with
+quoted guards) produced the c1a4dc6 fix batch: state-machine default-deny (no tool may start a
+step while one is in flight; remediation budget bound to the check session), AppleScript-native
+notification escaping (json.dumps \\uXXXX killed any non-ASCII char; verified live), hardened
+has_api_key (blank/whitespace/unsubstituted ${...} template values select zero-key, protecting
+the bundle's keyless users), local-day streak bucketing (UTC days broke evening users), ONE
+scoring fold (loop.fold_verdicts) for all three judging paths, and source-snapshot parity on
+web/CLI. DEFERRED, deliberately: folding the zero-key if/else branches behind the
+Judge/TransferEngine seam (a HostProtocolJudge). It is the right shape, but it is a wide
+refactor with no behavior change today; do it AS the first step of the MCP-sampling judge,
+when a third mode makes the seam pay for itself. Do not add a third mode without it.
+
 **Decision 24 — the visible-progression layer (2026-06-10).**
 Parv: streak alone isn't enough; without game elements it feels like "just a Claude chat".
 Agreed on the diagnosis, held the line on the boundary: gamify SHOWING UP and TERRITORY, never
