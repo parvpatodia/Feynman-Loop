@@ -83,10 +83,14 @@ class JsonLearnerLog:
 def streak_days(events: list[ReviewEvent], *, now: datetime | None = None) -> int:
     """Consecutive days with at least one rep, counting back from today (yesterday keeps it
     alive). WHY this is the ONE gamified number: it rewards showing up, which is the behavior
-    that compounds; ranking scores would reward gaming them (Decision 8)."""
+    that compounds; ranking scores would reward gaming them (Decision 8).
+
+    WHY local dates, not UTC: a streak is a human-day concept. On UTC days, a US-evening user
+    repping nightly at 7pm (2am UTC) would see streaks break or double-count at the UTC
+    boundary. Timestamps stay UTC in the ledger; only the day bucketing is local."""
     now = now or _utcnow()
-    days = {e.at.date() for e in events}
-    day = now.date()
+    days = {e.at.astimezone().date() for e in events}
+    day = now.astimezone().date()
     if day not in days:
         day = day - timedelta(days=1)  # today's rep not done yet; streak survives until midnight
         if day not in days:

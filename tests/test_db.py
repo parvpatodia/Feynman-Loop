@@ -102,3 +102,17 @@ def test_judge_model_env_override(monkeypatch):
     assert ClaudeTransfer()._model == "claude-sonnet-4-6"
     monkeypatch.delenv("FEYNMAN_JUDGE_MODEL")
     assert ClaudeJudge()._model == "claude-opus-4-8"
+
+
+def test_has_api_key_rejects_placeholder_and_blank(monkeypatch):
+    from feynman_loop import providers
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-real")
+    assert providers.has_api_key() is True
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    assert providers.has_api_key() is False
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "   ")
+    assert providers.has_api_key() is False
+    # an MCP host that fails to substitute the manifest template must not select independent mode
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "${user_config.anthropic_api_key}")
+    assert providers.has_api_key() is False

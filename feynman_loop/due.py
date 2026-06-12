@@ -133,15 +133,24 @@ def _notification_text(data: dict) -> str:
     return f"{prefix}30-second rep due: {top['concept']}{more}"
 
 
+def _applescript_string(text: str) -> str:
+    """A safe AppleScript string literal. WHY not plain json.dumps: JSON escapes control and
+    (by default) non-ASCII characters as \\uXXXX, which AppleScript's parser does not understand,
+    so a concept named "Poincaré" or a probe with a stray control char would silently kill the
+    notification. AppleScript only needs backslash and double-quote escaped; control chars are
+    dropped (they have no place in a notification line)."""
+    cleaned = "".join(ch for ch in text if ch >= " " or ch == "\t")
+    return '"' + cleaned.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
 def _post_notification(text: str) -> None:
     """macOS notification via osascript; prints as fallback elsewhere. This is the only true
     PUSH channel we have: hosts cannot be pushed into (MCP is pull-only), the OS can."""
-    import json as _json
     import platform
     import subprocess
 
     if platform.system() == "Darwin":
-        script = f'display notification {_json.dumps(text)} with title "Feynman-Loop"'
+        script = f'display notification {_applescript_string(text)} with title "Feynman-Loop"'
         subprocess.run(["osascript", "-e", script], check=False, capture_output=True)
     else:
         print(text)

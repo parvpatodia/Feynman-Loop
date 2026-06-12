@@ -74,7 +74,9 @@ cheaper) and `FEYNMAN_FAST_MODEL` (default `claude-haiku-4-5`).
 
 ## Run the demo (CLI)
 
-Set your Anthropic key in the shell only. Never commit it or paste it anywhere.
+Needs the `embeddings` extra (`pip install -e ".[embeddings]"`) and an API key, set in the
+shell only. Never commit the key or paste it anywhere. Prefer `feynman-loop check`, which
+tells you what's missing instead of a traceback.
 
 ```
 export ANTHROPIC_API_KEY=...
@@ -89,6 +91,8 @@ Point it at a plain-text source and name a concept (the retrieval query is deriv
 You type your explanation, then an empty line to submit. It returns the grounded gaps and, if your explanation is solid, a transfer challenge. Sources can be `.txt` or `.pdf` (text-based PDFs; scanned/image-only PDFs are not OCR'd).
 
 ## Run the web UI
+
+Needs the `embeddings` extra and an API key, same as the CLI.
 
 ```
 export ANTHROPIC_API_KEY=...

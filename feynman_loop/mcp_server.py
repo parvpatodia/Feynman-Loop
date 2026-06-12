@@ -39,9 +39,9 @@ from feynman_loop.learner import (
 )
 from feynman_loop.models import (
     MODEL_FALLBACK_LABEL,
+    SNAPSHOT_LIMIT,
     Citation,
     Concept,
-    Gap,
     GapReport,
     RubricPoint,
     SourceRef,
@@ -176,10 +176,6 @@ _CHECKS: dict[str, _Check] = {}
 # the vector retriever (optional "embeddings" extra). Typical pasted sources are well under this.
 _DIRECT_SOURCE_LIMIT = 12_000
 
-# Hard cap on the stored snapshot; protects the ledger from a pathological paste.
-_SNAPSHOT_LIMIT = 100_000
-
-
 def _split_passages(doc_id, doc_label: str, text: str) -> list[RetrievedPassage]:
     """Split a source into at most 6 passage blocks on paragraph boundaries. WHY whole-text
     blocks instead of top-k retrieval for normal sources: a rubric built from retrieved chunks
@@ -267,10 +263,10 @@ def _points_from_host(points: list, passages, *, lo: int, hi: int) -> list[Rubri
     return built[:hi]
 
 
-def _host_verdicts(rubric, verdicts, text: str):
-    """Verify host verdicts against the locked-in text. Returns ([(status, probe)] aligned to the
-    rubric, evidence_failures). Unknown indexes are ignored; absent verdicts count as missed, so
-    an incomplete submission can never inflate the score."""
+def _host_verdicts(rubric, verdicts, text: str) -> list[tuple[str, bool, str]]:
+    """Verify host verdicts against the locked-in text. Returns (status, evidence_ok, probe)
+    triples aligned to the rubric, ready for loop.fold_verdicts. Unknown indexes are ignored;
+    absent verdicts count as missed, so an incomplete submission can never inflate the score."""
     by_index: dict[int, dict] = {}
     for v in verdicts or []:
         if isinstance(v, dict):
@@ -278,8 +274,7 @@ def _host_verdicts(rubric, verdicts, text: str):
                 by_index[int(v.get("index"))] = v
             except (TypeError, ValueError):
                 continue
-    out: list[tuple[str, str]] = []
-    failures = 0
+    out: list[tuple[str, bool, str]] = []
     for i, _rp in enumerate(rubric):
         v = by_index.get(i, {})
         status, ok = verified_status(
@@ -287,27 +282,19 @@ def _host_verdicts(rubric, verdicts, text: str):
             evidence=str(v.get("evidence", "")),
             text=text,
         )
-        if not ok:
-            failures += 1
-        out.append((status, str(v.get("probe", "")).strip()))
-    return out, failures
+        out.append((status, ok, str(v.get("probe", "")).strip()))
+    return out
 
 
 def _report_from_verdicts(chk: _Check, verdicts: list) -> GapReport:
-    """Score in code from verified statuses; identical math to the independent judge."""
+    """Score in code from verified statuses, through the SAME fold as the independent judge."""
     rubric = chk.concept.rubric
-    statuses, failures = _host_verdicts(rubric, verdicts, chk.pending_text)
-    total, correct, gaps = 0.0, [], []
-    for (status, probe), rp in zip(statuses, rubric, strict=True):
-        value = STATUS_VALUE[status]
-        total += value
-        if value >= 1.0:
-            correct.append(rp.criterion)
-        else:
-            gaps.append(Gap(description=probe or _GENERIC_PROBE, citation=rp.citation))
+    triples = _host_verdicts(rubric, verdicts, chk.pending_text)
+    level, correct, gaps, failures = loop_ops.fold_verdicts(
+        rubric, triples, fallback_probe=lambda rp: _GENERIC_PROBE)
     return GapReport(
         concept_id=chk.concept.id, user_explanation=chk.pending_text,
-        understanding_level=total / len(rubric), correct_points=correct, gaps=gaps,
+        understanding_level=level, correct_points=correct, gaps=gaps,
         evidence_failures=failures,
     )
 
@@ -391,7 +378,7 @@ def start_check(concept: str, source_text: str = "", rebuild: bool = False, dept
     if source_text and source_text.strip():
         # new source provided -> (re)ground against it, and keep the snapshot so grounding
         # survives restarts (Decision 22)
-        text = source_text.strip()[:_SNAPSHOT_LIMIT]
+        text = source_text.strip()[:SNAPSHOT_LIMIT]
         doc_id = uuid.uuid4()
         doc_label = f"{concept} source"
         # WHY: query expansion is an API call; zero-key retrieves with the concept label itself.
@@ -536,6 +523,14 @@ def judge_explanation(check_id: str, explanation: str) -> dict:
         return {"error": "unknown check_id; call start_check first"}
     if chk.awaiting == "rubric":
         return {"error": "rubric not built yet; finish submit_rubric first"}
+    # WHY these two guards: every in-flight step must finish or the ledger double-logs. A volley
+    # mid-flight would record this attempt twice (once here, once at _finish_rapid); a pending
+    # zero-key step would have its locked text silently discarded.
+    if chk.rapid is not None:
+        return {"error": "a rapid volley is in progress on this check; finish it with answer() "
+                         "or start a fresh check"}
+    if chk.awaiting is not None:
+        return {"error": f"finish the current step first (awaiting {chk.awaiting})"}
 
     if not _independent_judge_available():
         # WHY locked first: the explanation is stored BEFORE the rubric/protocol is revealed, so
@@ -602,9 +597,10 @@ def submit_judgment(check_id: str, verdicts: list[dict]) -> dict:
 
     if chk.awaiting == "transfer_judgment":
         rubric = chk.probe.rubric
-        statuses, failures = _host_verdicts(rubric, verdicts, chk.pending_text)
+        triples = _host_verdicts(rubric, verdicts, chk.pending_text)
+        failures = sum(1 for _s, ok, _p in triples if not ok)
         total, met, missed_points = 0.0, [], []
-        for (status, _probe), rp in zip(statuses, rubric, strict=True):
+        for (status, _ok, _probe), rp in zip(triples, rubric, strict=True):
             value = STATUS_VALUE[status]
             total += value
             if value >= 1.0:
@@ -670,23 +666,16 @@ def _ensure_questions(chk: _Check) -> None:
 
 
 def _finish_rapid(chk: _Check, *, judge: str) -> dict:
-    """Close the volley: same scoring math, same gated scheduling, same ledger as a full review."""
+    """Close the volley: the SAME scoring fold, gated scheduling, and ledger as a full review."""
     rubric = chk.concept.rubric
     rapid = chk.rapid
-    total, correct, gaps, failures = 0.0, [], [], 0
-    for rp, (status, ok, probe) in zip(rubric, rapid["verdicts"], strict=True):
-        if not ok:
-            failures += 1
-        value = STATUS_VALUE[status]
-        total += value
-        if value >= 1.0:
-            correct.append(rp.criterion)
-        else:
-            gaps.append(Gap(description=probe or rp.question or _GENERIC_PROBE, citation=rp.citation))
+    level, correct, gaps, failures = loop_ops.fold_verdicts(
+        rubric, rapid["verdicts"],
+        fallback_probe=lambda rp: rp.question or _GENERIC_PROBE)
     report = GapReport(
         concept_id=chk.concept.id,
         user_explanation="\n".join(rapid["answers"]),  # their words, per point, for the journey
-        understanding_level=total / len(rubric),
+        understanding_level=level,
         correct_points=correct, gaps=gaps, evidence_failures=failures,
     )
     uid = _make_identity().user_id()
@@ -767,8 +756,9 @@ def answer(check_id: str, response: str, status: str = "", evidence: str = "", p
     rubric = chk.concept.rubric
     i = chk.rapid["pos"]
     rp = rubric[i]
+    independent = _independent_judge_available()  # once per turn; the mode never flips mid-call
 
-    if _independent_judge_available():
+    if independent:
         verdict_status, ok, verdict_probe = _make_judge().evaluate_point(
             criterion=rp.criterion, question=rp.question, answer=response)
         judge = "independent"
@@ -795,7 +785,7 @@ def answer(check_id: str, response: str, status: str = "", evidence: str = "", p
     }
     if not ok:
         out["evidence_failures"] = 1
-    if _independent_judge_available():
+    if independent:
         out["next_question"] = nxt.question
     else:
         out["next_point"] = {"index": chk.rapid["pos"], "criterion": nxt.criterion}
@@ -812,11 +802,15 @@ def make_transfer(check_id: str) -> dict:
         return {"error": "unknown check_id"}
     if not chk.transfer_available:
         return {"error": "transfer not unlocked yet; the explanation wasn't solid enough"}
+    if chk.rapid is not None or chk.awaiting is not None:
+        # WHY: never clobber an in-flight step; the locked text/protocol would be silently lost
+        return {"error": "finish the current step first"}
+    # WHY remediation_done is NOT reset here: the retry budget is one per check session, not one
+    # per challenge. Resetting it made the bound farmable by requesting fresh challenges.
     _ensure_passages(chk)  # restores grounding from the stored snapshot after a restart
 
     if not _independent_judge_available():
         chk.awaiting = "transfer_probe"
-        chk.remediation_done = False
         return {
             "action": "make_transfer_in_host",
             "passages": [{"index": i, "text": p.text} for i, p in enumerate(chk.passages)],
@@ -831,7 +825,6 @@ def make_transfer(check_id: str) -> dict:
         }
 
     chk.probe = _make_transfer().generate_probe(concept=chk.concept, passages=chk.passages)
-    chk.remediation_done = False
     return {"question": chk.probe.question, "instruction": _NO_ANSWER}
 
 
@@ -871,6 +864,9 @@ def score_transfer(check_id: str, answer: str) -> dict:
         return {"error": "unknown check_id"}
     if chk.probe is None:
         return {"error": "no transfer to score; call make_transfer first"}
+    if chk.awaiting is not None:
+        # WHY: scoring against a probe while another step is pending would judge stale state
+        return {"error": f"finish the current step first (awaiting {chk.awaiting})"}
 
     if not _independent_judge_available():
         chk.pending_text = answer
@@ -976,8 +972,8 @@ def journey(concept: str) -> dict:
     """Show the learner's journey on one concept: every past attempt in their own words, with
     scores, oldest first. Present it as their growth record; this is the 0-to-90 made visible."""
     wanted = concept.strip().casefold()
-    events = [e for e in _make_learner_log().events()
-              if e.concept_label.strip().casefold() == wanted]
+    all_events = _make_learner_log().events()  # loaded once; reused for the card's streak
+    events = [e for e in all_events if e.concept_label.strip().casefold() == wanted]
     if not events:
         return {"concept": concept, "attempts": [], "note": "no attempts recorded yet"}
     attempts = [{
@@ -1006,7 +1002,7 @@ def journey(concept: str) -> dict:
             strength = f" | memory: {days:.0f} days"
         arc = (f"{explains[0].score:.0%} -> {explains[-1].score:.0%}" if len(explains) >= 2
                else f"{explains[0].score:.0%}")
-        streak = streak_days(_make_learner_log().events())
+        streak = streak_days(all_events)
         card = (f"**{c.label}** ({c.depth})\n"
                 f"{arc} across {len(explains)} attempt(s) | level: {level}{strength}\n"
                 f"day streak: {streak} | Feynman-Loop")

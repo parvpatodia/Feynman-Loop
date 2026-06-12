@@ -84,3 +84,14 @@ def test_pending_is_surfaced_once_then_consumed(tmp_path):
     assert "240 AI-written lines" in _context_block(first)
     second = collect(root=tmp_path, now=_NOW)
     assert second["pending"] == []  # consumed: surfaced once, never nags twice
+
+
+def test_applescript_string_survives_hostile_text():
+    from feynman_loop.due import _applescript_string
+
+    s = _applescript_string('Poincaré said "non-ASCII" stays\x00 literal \\ here')
+    assert s.startswith('"') and s.endswith('"')
+    assert "Poincaré" in s                  # non-ASCII passes through raw (no \\uXXXX)
+    assert '\\"non-ASCII\\"' in s           # quotes escaped the AppleScript way
+    assert "\x00" not in s                  # control chars dropped, not \\u-escaped
+    assert "\\\\ here" in s                 # backslash doubled

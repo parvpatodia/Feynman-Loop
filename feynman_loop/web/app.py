@@ -29,6 +29,7 @@ from feynman_loop.loop import (
 )
 from feynman_loop.models import (
     MODEL_FALLBACK_LABEL,
+    SNAPSHOT_LIMIT,
     Concept,
     SourceRef,
     SourceTier,
@@ -221,9 +222,13 @@ def _start_session(*, source_text: str, concept_label: str, depth: str = "workin
             doc_label=doc_label,
             retrieval_query=_make_expander().expand(concept_label=concept_label),
         )
-        # WHY: keep the existing concept id so the history stays attached to one concept
-        concept = existing.model_copy(update={"source_ref": source_ref, "rubric": [], "depth": requested_depth}) \
-            if existing else Concept(label=concept_label, source_ref=source_ref, depth=requested_depth)
+        # WHY: keep the existing concept id so the history stays attached to one concept.
+        # The snapshot keeps grounding restart-proof on this surface too (parity with MCP).
+        snapshot = source_text.strip()[:SNAPSHOT_LIMIT]
+        concept = existing.model_copy(update={"source_ref": source_ref, "rubric": [],
+                                              "depth": requested_depth, "source_text": snapshot}) \
+            if existing else Concept(label=concept_label, source_ref=source_ref,
+                                     depth=requested_depth, source_text=snapshot)
         build_concept_rubric(concept=concept, retriever=retriever, judge=_make_judge())
     elif existing and existing.rubric and not depth_changed:
         # returning concept, no new source -> reuse the persisted rubric (instant start, same history)

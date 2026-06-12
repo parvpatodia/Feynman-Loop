@@ -39,3 +39,23 @@
   problem that killed fine-tuning, and freezes one passage so the judge can't match what
   the user actually said. Retrieve live at judge time.
 EOF
+- **An adversarial review (9 angles, verified per finding) beats reading your own diff.** The
+  2026-06-10 xhigh review of the zero-key/rapid/progression run found, confirmed live, and fixed:
+  (1) judge_explanation could double-log one attempt mid-volley (now refused); (2) the daily
+  notification died silently on ANY non-ASCII or control character because json.dumps escapes
+  \uXXXX, which AppleScript cannot parse — found only because a verifier actually executed
+  osascript (write escaping for the TARGET language, and test the real binary); (3) the .mcpb
+  manifest's optional-key template could leave a literal ${user_config...} in env and silently
+  select independent mode — has_api_key() now rejects blank/placeholder values; (4) streaks were
+  bucketed on UTC days, which breaks nightly-evening users in western timezones — a streak is a
+  human-day concept, bucket on LOCAL days, store UTC; (5) the verdict->score fold had drifted
+  into three copies (judge, zero-key, rapid) — now ONE loop.fold_verdicts, because three copies
+  of scoring math is three ways for modes to disagree; (6) web/CLI lacked the source snapshot
+  the MCP surface had (parity restored): when a moat property ships, grep every surface for it.
+  Three findings were REFUTED only because guards already existed — keep writing guards.
+- **State machines need a default-deny posture.** The zero-key protocol guarded each submit_*
+  tool's own phase but let the START of a new step (judge_explanation, make_transfer,
+  score_transfer) clobber an in-flight one, silently discarding locked text. Every entry point
+  now refuses when ANY step is pending. Also: a retry budget that a caller can re-arm
+  (make_transfer resetting remediation_done) is not a budget; bind bounds to the session, not
+  the request.

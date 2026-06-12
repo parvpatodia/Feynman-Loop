@@ -22,10 +22,10 @@ from anthropic import Anthropic
 from pydantic import BaseModel
 
 from feynman_loop.judge.base import Judge
-from feynman_loop.models import MODEL_FALLBACK_LABEL, Citation, Concept, Gap, GapReport, RubricPoint
+from feynman_loop.models import MODEL_FALLBACK_LABEL, Citation, Concept, GapReport, RubricPoint
 from feynman_loop.providers import judge_model
 from feynman_loop.retrieval.base import RetrievedPassage
-from feynman_loop.verification import STATUS_VALUE, verified_status
+from feynman_loop.verification import verified_status
 
 # WHY depth shapes the RUBRIC, not the scorer: the bar lives in what a complete explanation must
 # contain. The scorer stays identical; only the criteria change with the learner's stated target.
@@ -252,11 +252,8 @@ class ClaudeJudge(Judge):
         ).parsed_output
 
         status_by_index = {s.index: s for s in draft.scores}
-        correct_points: list[str] = []
-        gaps: list[Gap] = []
-        total = 0.0
-        evidence_failures = 0
-        for i, rp in enumerate(rubric):
+        verdicts: list[tuple[str, bool, str]] = []
+        for i in range(len(rubric)):
             s = status_by_index.get(i)
             # WHY verified, not trusted: every credited point must carry a verbatim quote from the
             # learner's text, checked in code. Credit the judge cannot point to is downgraded.
@@ -265,28 +262,26 @@ class ClaudeJudge(Judge):
                 evidence=s.evidence if s else "",
                 text=user_explanation,
             )
-            if not ok:
-                evidence_failures += 1
-            value = STATUS_VALUE[status]
-            total += value
-            if value >= 1.0:
-                correct_points.append(rp.criterion)
+            # WHY: the gap is a probe (a question), never the missing fact verbatim, so copying
+            # feedback back doesn't satisfy the criterion. Probes never name the criterion.
+            if s and s.probe:
+                probe = s.probe
+            elif not ok and s and s.status == "met":
+                probe = ("This was almost credited, but your explanation didn't clearly "
+                         "contain it. State that part explicitly, in your own words.")
             else:
-                # WHY: the gap is a probe (a question), never the missing fact verbatim, so copying
-                # feedback back doesn't satisfy the criterion. Citation kept for audit, not displayed.
-                # Fallbacks never name the criterion; that would hand the learner the point.
-                if s and s.probe:
-                    probe = s.probe
-                elif not ok and s and s.status == "met":
-                    probe = ("This was almost credited, but your explanation didn't clearly "
-                             "contain it. State that part explicitly, in your own words.")
-                else:
-                    probe = "One required point is missing. What else would a complete explanation cover?"
-                gaps.append(Gap(description=probe, citation=rp.citation))
+                probe = ""
+            verdicts.append((status, ok, probe))
 
-        # WHY: understanding is computed in code from per-point statuses, not a holistic guess by
-        # the model, so it is accurate and moves predictably as the learner covers more points.
-        understanding_level = total / len(rubric)
+        # WHY: understanding is computed in code from per-point statuses via the ONE shared fold
+        # (loop.fold_verdicts), not a holistic guess by the model, and identically across modes.
+        from feynman_loop.loop import fold_verdicts  # local import: loop also imports judge.base
+
+        understanding_level, correct_points, gaps, evidence_failures = fold_verdicts(
+            rubric, verdicts,
+            fallback_probe=lambda rp: ("One required point is missing. What else would a "
+                                       "complete explanation cover?"),
+        )
         return GapReport(
             concept_id=concept.id,
             user_explanation=user_explanation,

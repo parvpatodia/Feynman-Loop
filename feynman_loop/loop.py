@@ -12,11 +12,20 @@ from uuid import UUID
 from difflib import SequenceMatcher
 
 from feynman_loop.judge.base import Judge
-from feynman_loop.models import Concept, GapReport, RubricPoint, TransferProbe, TransferResult, UserState
+from feynman_loop.models import (
+    Concept,
+    Gap,
+    GapReport,
+    RubricPoint,
+    TransferProbe,
+    TransferResult,
+    UserState,
+)
 from feynman_loop.retrieval.base import Retriever
 from feynman_loop.scheduling import gated_next_due
 from feynman_loop.storage import UserStateStore
 from feynman_loop.transfer.base import TransferEngine
+from feynman_loop.verification import STATUS_VALUE
 
 # WHY: don't probe application until the baseline explanation is solid; testing transfer on
 # someone who can't even restate the concept measures nothing (Decision 12).
@@ -54,6 +63,27 @@ def build_concept_rubric(
     """Build the concept's fixed scoring rubric ONCE at setup and store it on the concept. With a
     source (retriever) the rubric is grounded in it; with no source it's built from model knowledge."""
     concept.rubric = judge.build_rubric(concept=concept, passages=_passages(concept, retriever, k))
+
+
+def fold_verdicts(rubric, verdicts, *, fallback_probe):
+    """THE scoring fold, shared by every judging path (independent judge, zero-key host
+    verdicts, rapid volley) so the math can never diverge between modes: met = full credit and
+    a correct_point; anything less = a probe-shaped gap, never the answer.
+
+    verdicts: list of (effective_status, evidence_ok, probe) aligned to the rubric, statuses
+    already verified (verification.verified_status). fallback_probe(rp) supplies the gap text
+    when the judge gave none. Returns (understanding_level, correct_points, gaps, failures)."""
+    total, correct, gaps, failures = 0.0, [], [], 0
+    for rp, (status, ok, probe) in zip(rubric, verdicts, strict=True):
+        if not ok:
+            failures += 1
+        value = STATUS_VALUE[status]
+        total += value
+        if value >= 1.0:
+            correct.append(rp.criterion)
+        else:
+            gaps.append(Gap(description=probe or fallback_probe(rp), citation=rp.citation))
+    return total / len(rubric), correct, gaps, failures
 
 
 def run_review(

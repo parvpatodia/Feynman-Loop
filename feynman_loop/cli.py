@@ -72,7 +72,10 @@ def main(argv: list[str]) -> int:
     # search string). The model expands it into a richer semantic query for better retrieval.
     retrieval_query = ClaudeQueryExpander().expand(concept_label=concept_label)
 
-    # seed the concept; its locator points at the doc we just ingested
+    # seed the concept; its locator points at the doc we just ingested. The capped snapshot
+    # keeps grounding restart-proof when this concept is later reviewed via MCP (parity).
+    from feynman_loop.models import SNAPSHOT_LIMIT
+
     concept = Concept(
         label=concept_label,
         source_ref=SourceRef(
@@ -81,6 +84,7 @@ def main(argv: list[str]) -> int:
             doc_label=doc_label,
             retrieval_query=retrieval_query,
         ),
+        source_text=text.strip()[:SNAPSHOT_LIMIT],
     )
 
     judge = ClaudeJudge()

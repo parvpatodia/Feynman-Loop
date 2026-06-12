@@ -22,6 +22,10 @@ from feynman_loop.models.gap_report import RubricPoint
 # (per the constitution); the learner profile may SUGGEST a change, openly, later.
 Depth = Literal["overview", "working", "expert"]
 
+# Hard cap on the stored source snapshot (chars); protects the ledger from a pathological paste.
+# Lives here so every surface (MCP, web, CLI) caps identically.
+SNAPSHOT_LIMIT = 100_000
+
 
 def _utcnow() -> datetime:
     # WHY: timezone-aware UTC. datetime.utcnow() is deprecated and returns a naive datetime,

@@ -129,3 +129,28 @@ def test_milestones_are_a_pure_function_of_the_log():
 
     comeback = unlocked_milestones([ev(20), ev(0)], now=now)
     assert "Comeback: back after a break" in comeback
+
+
+def test_streak_uses_local_days_not_utc(monkeypatch):
+    import time
+    from datetime import datetime, timezone
+    from uuid import uuid4
+
+    from feynman_loop.learner import streak_days
+
+    monkeypatch.setenv("TZ", "America/Los_Angeles")  # UTC-7 in June
+    time.tzset()
+    try:
+        def ev(at):
+            return ReviewEvent(concept_id=uuid4(), concept_label="X", kind="explain",
+                               score=0.5, at=at)
+
+        # nightly 7pm local reps cross UTC midnight (2am next UTC day); on UTC days these
+        # look broken, on local days they are a clean 2-day streak
+        mon_7pm_local = datetime(2026, 6, 9, 2, 0, tzinfo=timezone.utc)   # Mon 19:00 PDT
+        tue_7pm_local = datetime(2026, 6, 10, 2, 0, tzinfo=timezone.utc)  # Tue 19:00 PDT
+        now = datetime(2026, 6, 10, 3, 0, tzinfo=timezone.utc)            # Tue 20:00 PDT
+        assert streak_days([ev(mon_7pm_local), ev(tue_7pm_local)], now=now) == 2
+    finally:
+        monkeypatch.delenv("TZ")
+        time.tzset()

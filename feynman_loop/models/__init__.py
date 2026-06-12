@@ -6,7 +6,12 @@ Three buckets:
 - relevance   : goal + many-to-many link; enforces relevance-filtered-at-intake.
 """
 
-from feynman_loop.models.concept import Concept, SourceRef, SourceTier
+from feynman_loop.models.concept import (
+    SNAPSHOT_LIMIT as SNAPSHOT_LIMIT,
+    Concept,
+    SourceRef,
+    SourceTier,
+)
 from feynman_loop.models.gap_report import (
     MODEL_FALLBACK_LABEL,
     Citation,

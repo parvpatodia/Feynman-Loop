@@ -23,8 +23,14 @@ _DEFAULT_FAST = "claude-haiku-4-5"
 def has_api_key() -> bool:
     """Whether an independent judge is available. Without a key, the MCP server switches to
     zero-key mode: the HOST model does the language work under a strict protocol and the server
-    verifies evidence and computes every score in code (see verification.py)."""
-    return bool(os.environ.get("ANTHROPIC_API_KEY"))
+    verifies evidence and computes every score in code (see verification.py).
+
+    WHY the extra checks: MCP hosts launch the server with templated env (the .mcpb manifest
+    uses ${user_config.anthropic_api_key}). An empty field can arrive as "", whitespace, or the
+    UNSUBSTITUTED literal placeholder; treating any of those as a key would select independent
+    mode and 401 on every judge call, breaking exactly the keyless users the bundle targets."""
+    key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    return bool(key) and not key.startswith("${")
 
 
 def judge_model() -> str:

@@ -468,6 +468,58 @@ def test_answer_requires_a_running_volley():
     assert "error" in srv.answer(started["check_id"], "x")
 
 
+def test_judge_explanation_refuses_mid_volley():
+    # one attempt must never be logged twice (once by run_review, once by _finish_rapid)
+    started = srv.quick_check("Osmosis")
+    cid = started["check_id"]
+    blocked = srv.judge_explanation(cid, "a full explanation typed mid-volley")
+    assert "error" in blocked and "volley" in blocked["error"]
+    assert srv._make_learner_log().events() == []      # nothing was recorded
+
+
+def test_zero_key_in_flight_steps_cannot_be_clobbered(zero_key):
+    started = srv.start_check("Backpropagation", source_text="backprop applies the chain rule recursively.")
+    cid = started["check_id"]
+    srv.submit_rubric(cid, points=_zk_rubric_points())
+    srv.judge_explanation(cid, _ZK_EXPLANATION)        # locks text, awaiting='judgment'
+    srv._CHECKS[cid].transfer_available = True         # as if a prior attempt unlocked it
+    assert "error" in srv.make_transfer(cid)           # must not discard the locked judgment
+    assert "error" in srv.judge_explanation(cid, "a second explanation while one is locked")
+    assert srv._CHECKS[cid].awaiting == "judgment"     # the in-flight step survived intact
+
+
+def test_remediation_is_not_rearmed_by_a_fresh_transfer(zero_key):
+    started = srv.start_check("Entropy")
+    cid = started["check_id"]
+    srv.submit_rubric(cid, points=[
+        {"criterion": f"distinct checkable idea number {i}", "passage_index": 0,
+         "quote": "a brief supporting fact"} for i in range(4)])
+    srv.judge_explanation(cid, "entropy measures average surprise of a distribution")
+    srv.submit_judgment(cid, [
+        {"index": i, "status": "met", "evidence": "measures average surprise"} for i in range(4)])
+
+    def _fail_one_transfer():
+        srv.make_transfer(cid)
+        srv.submit_transfer_probe(cid, question="A long enough transfer question to pass?",
+                                  points=[{"criterion": "a checkable transfer idea",
+                                           "passage_index": 0, "quote": "fact"}])
+        srv.score_transfer(cid, "no idea at all")
+        return srv.submit_judgment(cid, [{"index": 0, "status": "missed", "evidence": ""}])
+
+    first = _fail_one_transfer()
+    assert first.get("action") == "make_remediation"   # the one retry is offered
+    # burn the remediation and fail it too
+    srv.submit_transfer_probe(cid, question="A narrower retry question, also long enough?",
+                              points=[{"criterion": "a narrower transfer idea",
+                                       "passage_index": 0, "quote": "fact"}])
+    srv.score_transfer(cid, "still no idea")
+    second = srv.submit_judgment(cid, [{"index": 0, "status": "missed", "evidence": ""}])
+    assert "action" not in second                      # retry budget spent
+
+    third = _fail_one_transfer()                       # a FRESH challenge on the same check
+    assert "action" not in third                       # must NOT re-arm the remediation
+
+
 # --- grounding: direct passages, the stored snapshot, and restart survival ---
 
 def test_split_passages_caps_blocks_and_covers_the_source():
