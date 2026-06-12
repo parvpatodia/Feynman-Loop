@@ -15,6 +15,11 @@ Rules: tests alongside code, `ruff check --select F,E9,B` clean, no API keys or 
 commits. The ledger (SQLite + vault) is the product; the LLM is a swappable component behind the
 `Judge` / `TransferEngine` interfaces.
 
+CI runs three jobs on every push/PR: the full suite with the embeddings extra (3.10 and 3.12),
+a core-only install proving the MCP server works without the extra (the zero-key bundle
+configuration; keep it passing), and a non-blocking dependency audit. A change that makes the
+core job need the embeddings extra is a regression even if all tests pass.
+
 Judging has two modes (see `mcp_server.py` docstring): an independent API judge when a key is
 set, and zero-key mode where the MCP host model judges under the verified-evidence protocol
 (`verification.py`). Any new judge implementation must keep the evidence rule: credited verdicts
