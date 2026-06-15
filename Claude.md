@@ -1,3 +1,5 @@
+MODE: BUILD
+
 # CLAUDE.md
 
 You are picking up an ongoing project. **Before doing anything, read these three files in order:**
