@@ -101,6 +101,18 @@ def test_pending_shipped_work_bridges_into_the_loop(tmp_path):
     assert "Do not force it" in block        # still an offer (trust criterion / no forced interruption)
 
 
+def test_off_mode_silences_proactive_surfaces_but_not_explicit_due(tmp_path):
+    """mode=off mutes the SessionStart context and the OS notification, yet the data is still
+    aggregated so an explicit `feynman-loop due` (the _human path) keeps working."""
+    _seed(tmp_path, due_delta_days=-1, gaps=["What performs the weight update?"])
+    (tmp_path / "feynman_settings.json").write_text(json.dumps({"mode": "off"}))
+    data = collect(root=tmp_path, now=_NOW)
+    assert data["mode"] == "off"
+    assert data["due"]                                  # still aggregated for explicit queries
+    assert _context_block(data) == ""                   # SessionStart silent
+    assert _notification_text(data) == ""               # notification silent
+
+
 def test_applescript_string_survives_hostile_text():
     from feynman_loop.due import _applescript_string
 

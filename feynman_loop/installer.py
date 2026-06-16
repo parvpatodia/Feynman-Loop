@@ -132,6 +132,8 @@ def run_init(*, api_key: str | None = None, notifications: bool = False) -> int:
     if settings.parent.exists():
         added = merge_hooks_into_settings(settings, python=python, home=home)
         print("Claude Code hooks: " + ("installed (next session)." if added else "already present."))
+        print("Engagement mode  : nudge (offer at a natural moment, never forced). Self-arm a gate "
+              "with `feynman-loop mode commit`, or silence proactivity with `feynman-loop mode off`.")
     else:
         print("Claude Code (~/.claude) not found; hooks skipped.")
 

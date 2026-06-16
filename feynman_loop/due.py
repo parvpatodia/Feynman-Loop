@@ -22,7 +22,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from feynman_loop import paths
+from feynman_loop import paths, settings
 from feynman_loop.db import stores_for
 from feynman_loop.learner import derive_profile
 
@@ -66,11 +66,14 @@ def collect(root: Path | None = None, now: datetime | None = None) -> dict:
         pending_path.unlink(missing_ok=True)
 
     profile = derive_profile(stores.events.events())
-    return {"due": due, "pending": pending, "tracked": tracked, "profile": profile}
+    return {"due": due, "pending": pending, "tracked": tracked, "profile": profile,
+            "mode": settings.get_mode(root)}
 
 
 def _context_block(data: dict) -> str:
     """The SessionStart context. Only emitted when something is actionable."""
+    if data.get("mode") == "off":
+        return ""  # the user silenced proactive surfaces; only explicit `feynman-loop due` speaks
     lines: list[str] = []
     if data["due"]:
         items = ", ".join(
@@ -137,7 +140,7 @@ def _human(data: dict) -> str:
 def _notification_text(data: dict) -> str:
     """The OS-notification line: one concrete question, not a guilt counter. A live streak is
     named because protecting it is the one gamified motivation we allow (consistency, not rank)."""
-    if not data["due"]:
+    if data.get("mode") == "off" or not data["due"]:
         return ""
     top = data["due"][0]
     streak = data["profile"].get("streak_days", 0)

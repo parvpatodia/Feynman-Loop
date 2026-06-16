@@ -83,3 +83,18 @@ EOF
   call), (b) drive interaction cost toward zero (rapid mode), (c) target an audience for whom
   canonical mastery IS the job (students/onboarding/interview-prep), NOT frontier researchers, whose
   novel work has no groundable source. Do not pretend code changes flip these.
+- **Coercion is only legitimate when self-armed, and "never trap the user" is the reliability bar.**
+  The middle path between the gentle nudge (low adoption) and a forced gate (violates the trust
+  criterion) is a mode the USER selects: `feynman-loop mode commit` arms a one-shot Stop-hook gate;
+  the default stays `nudge` (offer, never force), and `off` silences everything. A self-armed gate
+  must STILL be impossible to weaponize against its owner: it blocks the stop exactly once (the
+  per-session tally is cleared before any mode branch), it honors Claude Code's `stop_hook_active`
+  flag so a continuation chain can't loop, and EVERY error path (garbage stdin, corrupt settings)
+  exits 0 and degrades to `nudge` — a bad file can never produce a surprise block. The mode lives
+  in one module (`settings.py`); the stdlib-only hook duplicates the constants and a test pins them
+  equal, because a silent literal divergence is exactly what the pending-path bug was.
+- **Smoke-test the real serialization, not a hand-typed approximation.** A first live smoke of the
+  commit gate printed exit 0 (looked broken) only because shell `echo` turned `\n` inside a JSON
+  string into raw newlines -> invalid JSON -> capture.py fail-silently wrote nothing. The CODE was
+  fine; the harness lied. Feed hooks the same way the host does (json.dumps via a real serializer),
+  or a broken smoke will either fake a failure or, worse, fake a pass.

@@ -5,6 +5,7 @@
   feynman-loop check SRC NAME  terminal explain-back on a source file
   feynman-loop web [--port]    the web UI (binds localhost only; it is single-user by design)
   feynman-loop mcp             run the MCP server on stdio (what host configs invoke)
+  feynman-loop mode [MODE]     show, or set, how proactive the loop is (off|nudge|commit)
 """
 
 from __future__ import annotations
@@ -64,6 +65,10 @@ def main(argv: list[str] | None = None) -> int:
     p_exp = sub.add_parser("export", help="dump the full ledger as JSON (backup/portability)")
     p_exp.add_argument("--out", default=None, help="write to a file instead of stdout")
 
+    p_mode = sub.add_parser("mode", help="show or set the engagement mode")
+    p_mode.add_argument("mode", nargs="?", default=None,
+                        help="off (silent), nudge (offer; default), commit (self-armed gate)")
+
     args = parser.parse_args(argv)
 
     if args.cmd == "init":
@@ -104,6 +109,28 @@ def main(argv: list[str] | None = None) -> int:
             print(f"wrote {args.out}")
         else:
             print(dump)
+        return 0
+    if args.cmd == "mode":
+        from feynman_loop import paths, settings
+
+        root = paths.home()
+        if args.mode is None:
+            print(settings.get_mode(root))  # show current
+            return 0
+        try:
+            settings.set_mode(root, args.mode)
+        except ValueError as e:
+            print(str(e))
+            return 2
+        blurb = {
+            "off": "Proactive nudges and the daily notification are now silent. "
+                   "Explicit `feynman-loop due` still works.",
+            "nudge": "At a natural moment, sessions will OFFER an explain-back. Never forced.",
+            "commit": "Self-armed gate ON. At session end, if you shipped unexplained AI-written "
+                      "code, you will be asked to explain it before wrapping up. You can still "
+                      "decline, and it never traps you. Relax it with `feynman-loop mode nudge`.",
+        }[args.mode]
+        print(f"mode set to {args.mode}. {blurb}")
         return 0
     return 2
 
