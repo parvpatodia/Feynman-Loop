@@ -98,14 +98,9 @@ configured the connector. Scope is a convenience, not a security sandbox.
 
 ## Setup
 
-**One-click (Claude Desktop, no terminal):** download `feynman-loop.mcpb` from the GitHub
-Releases page and double-click it (or Claude Desktop > Settings > Extensions > Install
-Extension). The API key field is optional; leave it empty for zero-key mode. Needs Python
-3.10+ on your machine. To build the bundle yourself: `./scripts/build_mcpb.sh`.
-
-**Terminal (Claude Code, other MCP hosts, hooks):** use an isolated virtualenv. Do not install
-into a global or conda environment; the optional vector stack (numpy, torch) is sensitive to
-ABI drift.
+**Terminal (recommended; Claude Code, Cursor, any MCP host, and the proactive hooks):** use an
+isolated virtualenv. Do not install into a global or conda environment; the optional vector
+stack (numpy, torch) is sensitive to ABI drift.
 
 ```
 python3 -m venv .venv
@@ -118,6 +113,13 @@ python3 -m venv .venv
 `init` also prints the config snippet for any other MCP host (ChatGPT Desktop, Gemini, Cursor).
 Normal pasted sources are grounded directly (the rubric sees the whole text, instantly); the
 `embeddings` extra is only needed for long documents and the web/CLI surfaces.
+
+**One-click bundle (Claude Desktop, no terminal):** build it on your own machine with
+`./scripts/build_mcpb.sh`, then double-click `dist/feynman-loop.mcpb` (or Claude Desktop >
+Settings > Extensions > Install Extension). The API key field is optional; leave it empty for
+zero-key mode. Needs Python 3.10+ and Node (for the bundler). The bundle ships native wheels, so
+it is platform-specific: build it on the OS you will run it on. A prebuilt bundle is not yet
+attached to Releases.
 
 ## No API key? It still works
 

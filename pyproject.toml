@@ -28,6 +28,10 @@ embeddings = [
   "sentence-transformers>=2.2",
 ]
 
+[project.urls]
+Homepage = "https://github.com/parvpatodia/Feynman-Loop"
+Repository = "https://github.com/parvpatodia/Feynman-Loop"
+
 [project.scripts]
 feynman-loop = "feynman_loop.app_cli:main"
 
