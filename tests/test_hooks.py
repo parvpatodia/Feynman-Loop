@@ -55,6 +55,30 @@ def test_below_threshold_stays_silent(tmp_path):
     assert not (tmp_path / "feynman_pending.json").exists()
 
 
+def test_stop_nudge_default_home_matches_reader(tmp_path):
+    """With FEYNMAN_HOME unset, the Stop hook must write the pending nudge where the reader
+    (feynman_loop.due -> paths.home()) looks: ~/.feynman-loop, NOT ~/Feynman-Loop. A divergent
+    default silently drops the strongest nudge. HOME is redirected to tmp, so the real home is
+    never touched."""
+    import os
+
+    env = {k: v for k, v in os.environ.items() if k != "FEYNMAN_HOME"}
+    env.update({"FEYNMAN_SCRATCH_DIR": str(tmp_path), "FEYNMAN_NUDGE_LINES": "5",
+                "HOME": str(tmp_path)})
+    sid = "sdef"
+    subprocess.run(
+        [sys.executable, str(_HOOKS / "capture.py")],
+        input=json.dumps({"session_id": sid, "tool_name": "Write", "cwd": "/p",
+                          "tool_input": {"file_path": "/p/api.py", "content": "a\nb\nc\nd\ne\nf"}}),
+        capture_output=True, text=True, env=env, timeout=30)
+    subprocess.run(
+        [sys.executable, str(_HOOKS / "stop_nudge.py")],
+        input=json.dumps({"session_id": sid}), capture_output=True, text=True, env=env, timeout=30)
+
+    assert (tmp_path / ".feynman-loop" / "feynman_pending.json").exists()   # where the reader looks
+    assert not (tmp_path / "Feynman-Loop" / "feynman_pending.json").exists()  # the old divergent path
+
+
 def test_hooks_fail_silent_on_garbage_input(tmp_path):
     env = {"FEYNMAN_SCRATCH_DIR": str(tmp_path), "FEYNMAN_HOME": str(tmp_path)}
     for script in ("capture.py", "stop_nudge.py"):

@@ -27,7 +27,11 @@ def scratch_path(session_id: str) -> Path:
 
 
 def pending_path() -> Path:
-    home = os.environ.get("FEYNMAN_HOME") or str(Path.home() / "Feynman-Loop")
+    # WHY ".feynman-loop": this MUST match feynman_loop.paths.home()'s default, which is what the
+    # SessionStart reader (feynman_loop.due) uses. A divergent default ("Feynman-Loop") silently
+    # writes the nudge where nothing reads it. Stdlib-only here (a hook can't import the package),
+    # so the default is duplicated by necessity; keep the two literals in sync.
+    home = os.environ.get("FEYNMAN_HOME") or str(Path.home() / ".feynman-loop")
     return Path(home) / "feynman_pending.json"
 
 
