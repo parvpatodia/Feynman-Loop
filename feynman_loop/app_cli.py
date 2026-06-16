@@ -6,6 +6,7 @@
   feynman-loop web [--port]    the web UI (binds localhost only; it is single-user by design)
   feynman-loop mcp             run the MCP server on stdio (what host configs invoke)
   feynman-loop mode [MODE]     show, or set, how proactive the loop is (off|nudge|commit)
+  feynman-loop scope [...]     which projects the proactive hooks fire in (default: all)
 """
 
 from __future__ import annotations
@@ -68,6 +69,12 @@ def main(argv: list[str] | None = None) -> int:
     p_mode = sub.add_parser("mode", help="show or set the engagement mode")
     p_mode.add_argument("mode", nargs="?", default=None,
                         help="off (silent), nudge (offer; default), commit (self-armed gate)")
+
+    p_scope = sub.add_parser("scope", help="which projects the proactive hooks fire in")
+    p_scope.add_argument("action", nargs="?", default=None,
+                         help="add | remove | all  (omit to show the current scope)")
+    p_scope.add_argument("path", nargs="?", default=None,
+                         help="project directory for add/remove (default: current directory)")
 
     args = parser.parse_args(argv)
 
@@ -132,6 +139,38 @@ def main(argv: list[str] | None = None) -> int:
         }[args.mode]
         print(f"mode set to {args.mode}. {blurb}")
         return 0
+    if args.cmd == "scope":
+        import os
+
+        from feynman_loop import paths, settings
+
+        root = paths.home()
+        act = args.action
+        if act is None:
+            scope = settings.get_scope(root)
+            if not scope:
+                print("scope: all projects (proactive hooks fire everywhere).")
+            else:
+                print("scope: proactive hooks fire ONLY in these projects:")
+                for p in scope:
+                    print(f"  {p}")
+            return 0
+        if act == "all":
+            settings.set_scope_all(root)
+            print("scope: all projects (proactive hooks fire everywhere).")
+            return 0
+        if act in ("add", "remove"):
+            target = args.path or os.getcwd()  # default to the current directory for convenience
+            if act == "add":
+                stored = settings.add_scope_path(root, target)
+                print(f"scope: added {stored}.\nProactive hooks now fire ONLY in your allowlisted "
+                      "projects. See them with `feynman-loop scope`; reset with `feynman-loop scope all`.")
+            else:
+                settings.remove_scope_path(root, target)
+                print(f"scope: removed {settings._norm(target)}.")
+            return 0
+        print("usage: feynman-loop scope [add|remove|all] [PATH]")
+        return 2
     return 2
 
 

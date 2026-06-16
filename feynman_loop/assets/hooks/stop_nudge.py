@@ -54,6 +54,21 @@ def read_mode() -> str:
         return _DEFAULT_MODE
 
 
+def in_scope(cwd: str) -> bool:
+    """Mirror of feynman_loop.settings.path_in_scope. Empty allowlist == every project; outside it
+    the gate/nudge stays silent (defense in depth: capture.py also skips out-of-scope projects)."""
+    try:
+        data = json.loads((home_dir() / _SETTINGS_FILE).read_text())
+        raw = data.get("scope") if isinstance(data, dict) else None
+        allowed = [p for p in raw if isinstance(p, str)] if isinstance(raw, list) else []
+    except Exception:
+        allowed = []
+    if not allowed or not cwd:
+        return True
+    c = os.path.normpath(os.path.abspath(cwd))
+    return any(c == p or c.startswith(p + os.sep) for p in allowed)
+
+
 def _gate_message(lines: int, files: list, target: str) -> str:
     return (
         f"feynman-loop commitment mode (the user armed this with `feynman-loop mode commit`): this "
@@ -80,6 +95,9 @@ def main() -> int:
             return 0
         tally = json.loads(spath.read_text())
         spath.unlink(missing_ok=True)  # one nudge/gate per accumulation, never a loop
+
+        if not in_scope(tally.get("cwd", "")):
+            return 0  # this project is out of the user's chosen scope
 
         mode = read_mode()
         if mode == "off":

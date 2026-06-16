@@ -113,6 +113,26 @@ def test_off_mode_silences_proactive_surfaces_but_not_explicit_due(tmp_path):
     assert _notification_text(data) == ""               # notification silent
 
 
+def test_scope_silences_out_of_scope_projects(tmp_path):
+    """With an allowlist set, the SessionStart context is silent in projects outside it, and still
+    speaks inside them. Scope governs the proactive PUSH, by the session's cwd."""
+    _seed(tmp_path, due_delta_days=-1, gaps=["What performs the weight update?"])
+    (tmp_path / "feynman_settings.json").write_text(json.dumps({"scope": ["/Users/x/study"]}))
+
+    out = collect(root=tmp_path, now=_NOW, cwd="/Users/x/work")     # outside the allowlist
+    assert out["in_scope"] is False
+    assert _context_block(out) == ""
+
+    inside = collect(root=tmp_path, now=_NOW, cwd="/Users/x/study/proj")  # inside it
+    assert inside["in_scope"] is True
+    assert "due for an explain-back" in _context_block(inside)
+
+    # an unknown cwd fails OPEN (a parse hiccup must not silently mute the loop)...
+    assert collect(root=tmp_path, now=_NOW, cwd=None)["in_scope"] is True
+    # ...but a known cwd outside the allowlist is out of scope.
+    assert collect(root=tmp_path, now=_NOW, cwd="/anything")["in_scope"] is False
+
+
 def test_applescript_string_survives_hostile_text():
     from feynman_loop.due import _applescript_string
 

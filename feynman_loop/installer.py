@@ -134,6 +134,8 @@ def run_init(*, api_key: str | None = None, notifications: bool = False) -> int:
         print("Claude Code hooks: " + ("installed (next session)." if added else "already present."))
         print("Engagement mode  : nudge (offer at a natural moment, never forced). Self-arm a gate "
               "with `feynman-loop mode commit`, or silence proactivity with `feynman-loop mode off`.")
+        print("Project scope    : all projects. Limit the proactive hooks to chosen projects with "
+              "`feynman-loop scope add <dir>` (run it inside a project to add the current one).")
     else:
         print("Claude Code (~/.claude) not found; hooks skipped.")
 

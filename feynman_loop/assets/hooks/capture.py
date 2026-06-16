@@ -33,9 +33,32 @@ def scratch_path(session_id: str) -> Path:
     return Path(base) / f"feynman_capture_{session_id}.json"
 
 
+def _home() -> Path:
+    # WHY ".feynman-loop": must match feynman_loop.paths.home() / settings (the readers). Stdlib
+    # only here, so the literal is duplicated; keep it pinned in sync.
+    return Path(os.environ.get("FEYNMAN_HOME") or str(Path.home() / ".feynman-loop"))
+
+
+def _in_scope(cwd: str) -> bool:
+    """Mirror of feynman_loop.settings.path_in_scope. Empty allowlist == every project; outside
+    the allowlist we record NOTHING for this project (not even file names)."""
+    try:
+        data = json.loads((_home() / "feynman_settings.json").read_text())
+        raw = data.get("scope") if isinstance(data, dict) else None
+        allowed = [p for p in raw if isinstance(p, str)] if isinstance(raw, list) else []
+    except Exception:
+        allowed = []
+    if not allowed or not cwd:
+        return True
+    c = os.path.normpath(os.path.abspath(cwd))
+    return any(c == p or c.startswith(p + os.sep) for p in allowed)
+
+
 def main() -> int:
     try:
         payload = json.load(sys.stdin)
+        if not _in_scope(payload.get("cwd", "")):
+            return 0  # this project is out of the user's chosen scope: record nothing
         session_id = payload.get("session_id") or "unknown"
         n = added_lines(payload.get("tool_name", ""), payload.get("tool_input") or {})
         if n <= 0:

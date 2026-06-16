@@ -98,3 +98,14 @@ EOF
   string into raw newlines -> invalid JSON -> capture.py fail-silently wrote nothing. The CODE was
   fine; the harness lied. Feed hooks the same way the host does (json.dumps via a real serializer),
   or a broken smoke will either fake a failure or, worse, fake a pass.
+- **Proactivity is opt-in AND opt-WHERE.** Beyond the mode (how proactive), the user picks which
+  projects the hooks fire in: `feynman-loop scope add <dir>` makes an allowlist; outside it the
+  hooks record nothing and say nothing (the cwd comes from the hook payload). Scope is a
+  CONVENIENCE, not a security boundary: an unknown cwd fails OPEN (a parse hiccup must never
+  silently mute the loop), and the gating is per-project, not a sandbox. The match check is
+  duplicated in the stdlib hooks; a parity test pins it to settings.path_in_scope.
+- **"Exposed key" claims must be verified against git history, not assumed.** CONTEXT said "rotate
+  the exposed key first." A `git log --all -S "sk-ant-"` showed the only matches in all history are
+  the placeholders `sk-ant-` and `sk-ant-real` (example/test text) — no real key was ever committed.
+  The key lives only in the local Claude Desktop config (plaintext, standard for every MCP server).
+  Verify a suspected leak with `git log -S`/`-p` before treating it as a breach or scrubbing history.

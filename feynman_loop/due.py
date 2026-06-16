@@ -27,8 +27,10 @@ from feynman_loop.db import stores_for
 from feynman_loop.learner import derive_profile
 
 
-def collect(root: Path | None = None, now: datetime | None = None) -> dict:
-    """Aggregate the ledger: concepts due now, pending shipped-work nudges, learner profile."""
+def collect(root: Path | None = None, now: datetime | None = None,
+            cwd: str | None = None) -> dict:
+    """Aggregate the ledger: concepts due now, pending shipped-work nudges, learner profile.
+    cwd is the session's working directory (from the hook payload); it decides project scope."""
     root = root or paths.home()
     now = now or datetime.now(timezone.utc)
     stores = stores_for(root)
@@ -67,13 +69,14 @@ def collect(root: Path | None = None, now: datetime | None = None) -> dict:
 
     profile = derive_profile(stores.events.events())
     return {"due": due, "pending": pending, "tracked": tracked, "profile": profile,
-            "mode": settings.get_mode(root)}
+            "mode": settings.get_mode(root),
+            "in_scope": settings.path_in_scope(cwd, settings.get_scope(root))}
 
 
 def _context_block(data: dict) -> str:
     """The SessionStart context. Only emitted when something is actionable."""
-    if data.get("mode") == "off":
-        return ""  # the user silenced proactive surfaces; only explicit `feynman-loop due` speaks
+    if data.get("mode") == "off" or not data.get("in_scope", True):
+        return ""  # silenced (off) or this project is out of the user's chosen scope
     lines: list[str] = []
     if data["due"]:
         items = ", ".join(
@@ -182,8 +185,19 @@ def main(argv: list[str] | None = None) -> int:
                         help="post an OS notification with the top due question (for launchd/cron)")
     args = parser.parse_args(argv)
 
+    # WHY: the SessionStart hook pipes its JSON payload (including cwd) on stdin. Read it ONLY in
+    # --context mode and only when stdin is not a terminal, so a manual `feynman-loop due` never
+    # blocks waiting for input. cwd drives project scope; any hiccup leaves it None (fails open).
+    cwd = None
+    if args.context and not sys.stdin.isatty():
+        try:
+            payload = json.load(sys.stdin)
+            cwd = payload.get("cwd") if isinstance(payload, dict) else None
+        except (ValueError, OSError):
+            cwd = None
+
     try:
-        data = collect()
+        data = collect(cwd=cwd)
     except Exception:
         # WHY: a hook must never break the host session. No ledger -> say nothing.
         return 0

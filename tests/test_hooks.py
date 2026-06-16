@@ -126,6 +126,38 @@ def test_stop_nudge_default_home_matches_reader(tmp_path):
     assert not (tmp_path / "Feynman-Loop" / "feynman_pending.json").exists()  # the old divergent path
 
 
+def test_scope_skips_out_of_scope_projects(tmp_path):
+    """With an allowlist set, capture records NOTHING for a project outside it (privacy: not even
+    file names), so the Stop hook has nothing to act on. Inside the allowlist, capture works."""
+    (tmp_path / "feynman_settings.json").write_text(json.dumps({"scope": ["/Users/x/study"]}))
+    env = {"FEYNMAN_SCRATCH_DIR": str(tmp_path), "FEYNMAN_HOME": str(tmp_path),
+           "FEYNMAN_NUDGE_LINES": "5"}
+
+    # out of scope -> no tally written
+    _run("capture.py", {"session_id": "soos", "tool_name": "Write", "cwd": "/Users/x/work",
+                        "tool_input": {"file_path": "/Users/x/work/a.py", "content": "a\nb\nc\nd\ne\nf"}}, env)
+    assert not (tmp_path / "feynman_capture_soos.json").exists()
+
+    # in scope -> tally written as usual
+    _run("capture.py", {"session_id": "sis", "tool_name": "Write", "cwd": "/Users/x/study/p",
+                        "tool_input": {"file_path": "/Users/x/study/p/a.py", "content": "a\nb\nc\nd\ne\nf"}}, env)
+    assert (tmp_path / "feynman_capture_sis.json").exists()
+
+
+def test_stop_hook_skips_out_of_scope_tally(tmp_path):
+    """Defense in depth: even if a tally exists for an out-of-scope project (e.g. scope narrowed
+    after capture), the Stop hook stays silent."""
+    (tmp_path / "feynman_settings.json").write_text(json.dumps({"scope": ["/Users/x/study"],
+                                                                "mode": "commit"}))
+    env = {"FEYNMAN_SCRATCH_DIR": str(tmp_path), "FEYNMAN_HOME": str(tmp_path),
+           "FEYNMAN_NUDGE_LINES": "5"}
+    (tmp_path / "feynman_capture_sx.json").write_text(json.dumps(
+        {"lines": 50, "files": {"a.py": 50}, "cwd": "/Users/x/work"}))
+    r = _run("stop_nudge.py", {"session_id": "sx"}, env)
+    assert r.returncode == 0 and r.stderr == ""             # no gate for an out-of-scope project
+    assert not (tmp_path / "feynman_pending.json").exists()
+
+
 def test_hook_constants_stay_in_sync_with_settings():
     """The stdlib-only hook duplicates settings.MODES/DEFAULT_MODE/SETTINGS_FILE (it cannot import
     the package). Pin them together: silent divergence is the exact bug the pending-path mismatch
@@ -141,6 +173,26 @@ def test_hook_constants_stay_in_sync_with_settings():
     assert tuple(mod._MODES) == tuple(settings.MODES)
     assert mod._DEFAULT_MODE == settings.DEFAULT_MODE
     assert mod._SETTINGS_FILE == settings.SETTINGS_FILE
+
+
+def test_hook_in_scope_matches_settings(tmp_path, monkeypatch):
+    """The hook duplicates settings.path_in_scope (stdlib, can't import the package). Pin behavior
+    parity, because a duplicated check silently drifting is the exact bug the pending path was."""
+    import importlib.util
+
+    from feynman_loop import settings
+
+    (tmp_path / "feynman_settings.json").write_text(json.dumps({"scope": ["/Users/x/study"]}))
+    monkeypatch.setenv("FEYNMAN_HOME", str(tmp_path))
+
+    asset = Path(__file__).resolve().parent.parent / "feynman_loop/assets/hooks/stop_nudge.py"
+    spec = importlib.util.spec_from_file_location("_stop_nudge_scope", asset)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    allowed = settings.get_scope(tmp_path)
+    for cwd in ("/Users/x/study", "/Users/x/study/deep", "/Users/x/work", "/Users/x/study-notes", ""):
+        assert mod.in_scope(cwd) == settings.path_in_scope(cwd or None, allowed), cwd
 
 
 def test_hooks_fail_silent_on_garbage_input(tmp_path):
