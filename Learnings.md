@@ -76,13 +76,6 @@ EOF
   stores no code (privacy property, Decision 20); the host, which already has the file, reads it
   live. Still an OFFER at a natural boundary, never a gate (trust criterion). Rule: every proactive
   surface must terminate in a concrete, low-friction entry into the core loop, not a notice.
-- **The product's adoption ceiling is behavioral, not a missing feature.** Brutally: the pitch is
-  "struggle first," and revealed preference is that people want LESS friction. The first user (Parv)
-  used it ~3 times and drifted. No commit fixes that. The honest levers are (a) attach to an
-  involuntary bite moment (which collides with the no-forced-interruption constitution: the owner's
-  call), (b) drive interaction cost toward zero (rapid mode), (c) target an audience for whom
-  canonical mastery IS the job (students/onboarding/interview-prep), NOT frontier researchers, whose
-  novel work has no groundable source. Do not pretend code changes flip these.
 - **Coercion is only legitimate when self-armed, and "never trap the user" is the reliability bar.**
   The middle path between the gentle nudge (low adoption) and a forced gate (violates the trust
   criterion) is a mode the USER selects: `feynman-loop mode commit` arms a one-shot Stop-hook gate;

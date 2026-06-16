@@ -257,7 +257,7 @@ refactor with no behavior change today; do it AS the first step of the MCP-sampl
 when a third mode makes the seam pay for itself. Do not add a third mode without it.
 
 **Decision 24 — the visible-progression layer (2026-06-10).**
-Parv: streak alone isn't enough; without game elements it feels like "just a Claude chat".
+A streak alone is not enough motivation; the loop needs a visible sense of progression.
 Agreed on the diagnosis, held the line on the boundary: gamify SHOWING UP and TERRITORY, never
 the score (score-attached rewards invite gaming the judge, the one thing the moat forbids;
 Duolingo's leagues are the cautionary tale). Built, all computed in code from the ledger, no
@@ -274,8 +274,8 @@ model calls, nothing gameable:
 Rejected again, on the record: XP, points, leagues, leaderboards.
 
 **Decision 23 — rapid mode: the volley (2026-06-10).**
-Driven by Parv's FIRST real usage session (Gradient Descent: 8% -> 58%): "no one will write
-paragraphs; make it quicker and engaging or no one will use it."
+Driven by real usage: long written explanations are too high-friction for routine use, so the
+interaction needs to be quicker and more engaging, without weakening what is measured.
 - The fix shrinks the unit of INTERACTION, never the unit of MEASUREMENT. Each RubricPoint now
   carries a per-point retrieval `question` (written in the same rubric-build call). `quick_check`
   + `answer` run the check as a volley: one question, one one-line answer from memory, instant
@@ -366,9 +366,9 @@ server (host decides); proactivity stays due-driven via hooks + tool description
 server. Live MCP test on 2026-06-10 ran the full loop end-to-end (NBA: 50%→67%→transfer 29%→
 remediation) with the host correctly relaying probes.
 
-**Decision 16 — the product IS the understanding ledger (2026-06-10).** Brutal-honesty review
-found the memory layer did not persist (per-process user id; concepts in RAM only), meaning the
-moat was fake and "why not just prompt Claude?" had no answer. Fixed and extended:
+**Decision 16 — the product IS the understanding ledger (2026-06-10).** A review found the memory
+layer did not persist across restarts (per-process user id; concepts in RAM only), so the
+cross-session memory that distinguishes this from a plain chat did not actually hold. Fixed and extended:
 - `JsonIdentity` (stable local user id), `JsonConceptStore` (concepts + rubrics persisted;
   re-explaining a concept attaches to its existing history by normalized-label lookup, instant
   start, no rubric rebuild), `progress` reads from DISK and survives restarts (explicit test).
