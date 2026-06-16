@@ -1,23 +1,100 @@
 # Feynman-Loop
 
-An AI tool for thought that makes you understand concepts deeply instead of offloading them. You explain a concept, it finds the gap against a trusted source, and resurfaces what you don't yet truly know.
+A local-first tool that makes you understand what you learn (and what AI writes for you)
+instead of offloading it. You explain a concept in your own words; it finds the gap against
+your own source material, asks about the gap instead of answering it, and resurfaces the
+concept later so the understanding sticks.
+
+It runs as an MCP connector inside the AI tools you already use (Claude Desktop, Claude Code,
+Cursor, ChatGPT Desktop, Gemini), with an optional web UI and CLI.
+
+## Honest summary first
+
+This tool adds friction on purpose. Its whole premise is that struggling to retrieve and
+explain something is what makes it stick, and that AI used too early removes that struggle.
+That makes it useful for a specific person and a waste of time for everyone else. Read the
+"Who this is for" and "Limitations" sections before you install. They are not marketing
+hedges; they are the truth about where this helps and where it does not.
+
+## What it is
+
+- **Explain-it-back, grounded in your own material.** The scoring rubric is built from the
+  source you provide (a paper, your notes, a file of code), not from generic model knowledge.
+- **Gaps come back as questions, never answers.** The point is that you retrieve it.
+- **A transfer challenge** tests whether you can apply the idea to a case you were not shown,
+  not just restate it.
+- **A persistent competence ledger.** It records what you can and cannot explain, over time,
+  with due dates. This is the part a stateless chat cannot be.
+- **Verified scoring.** Every credited point must carry a verbatim quote from your own words
+  that the code checks; scores are computed in code, not asserted by a model. A judge cannot
+  grant credit it cannot point to.
+
+## What it is not
+
+- Not a summarizer (that offloads the thinking).
+- Not a flashcard app (that is retention without understanding).
+- Not gamified. One streak number tracks consistency. No points, no leaderboards.
+- Not "AI that does the work for you." It is the opposite of that.
+
+## Who this is for
+
+- Students, bootcampers, career-switchers, and engineers onboarding into a new stack, where
+  mastering well-documented, canonical material is genuinely the job.
+- People prepping for a moment where they will have to explain their work out loud: an
+  interview, a code review, an exam.
+- Anyone who ships AI-written code and does not want to be unable to explain it later.
+
+## Who this is not for (be honest with yourself)
+
+- People who want AI to make their work faster and lighter. This makes it slower on purpose.
+- Frontier researchers working at the edge of a field. The judge grounds rubrics in a source;
+  if the truth of your work lives only in your head and not in any document, it cannot ground
+  anything useful. The tool is strongest on canonical material and weakest exactly where deep
+  novel expertise lives.
+
+## Limitations (read before installing)
+
+- **It fights a real habit.** Most people, most of the time, want less friction, not more.
+  If you will not actually do the reps, this tool will not change that.
+- **The "teeth" are opt-in and Claude Code only.** The commit-mode gate (below) that asks you
+  to explain shipped code before wrapping up is a Claude Code Stop hook. In Claude Desktop,
+  ChatGPT, Cursor, and Gemini there are no such hooks, so there it is pull-only: it helps when
+  you invoke it, and stays quiet otherwise.
+- **The line-count trigger is a rough proxy.** The shipped-code nudge counts AI-written lines,
+  including tests and docs, so it can fire on a large non-code change.
+- **Single user, single machine.** No accounts, no sync, no team features. The web UI is
+  unauthenticated and bound to localhost.
 
 ## How it works
 
-Explain-it-back, at two speeds.
+Two speeds:
 
-**Rapid (default, 2-3 minutes):** say *"quiz me on backprop"*. You get one sharp question per
-rubric point, answer each in a line or two from memory, and see an instant verdict and a running
-score. Same honest measurement, a fraction of the friction.
+- **Rapid (default, 2-3 minutes):** say *"quiz me on backprop"*. One sharp question per rubric
+  point, a one-line answer from memory each, an instant verdict, a running score.
+- **Full:** you explain the whole concept in your own words and it is judged in one pass.
 
-**Full:** you explain the whole concept in your own words and it is judged in one pass.
+Either way the rubric is grounded in your source, gaps return as questions, a transfer
+challenge probes application, and the ledger schedules the concept to come back when due.
 
-Either way: the rubric is grounded in your own source material, gaps come back as questions
-(never answers), a transfer challenge tests whether you can APPLY the concept, and the ledger
-records the score and schedules when it comes back. One streak number tracks consistency;
-there are no points and no leaderboards.
+## Controlling it: mode and scope
 
-The project is governed by three docs, read in order: `PRINCIPLES.md` (the constitution), `CONTEXT.md` (current state and decision log), `LEARNINGS.md` (guardrails and findings).
+Proactivity is opt-in by design and you choose both how much and where.
+
+```
+feynman-loop mode nudge     # default: offer an explain-back at a natural moment, never forced
+feynman-loop mode commit    # self-armed gate: at session end, if you shipped unexplained
+                            #   AI-written code, you are asked to explain it before wrapping up.
+                            #   You can still decline; it fires once and never traps you.
+feynman-loop mode off       # silence all proactive surfaces (explicit `feynman-loop due` still works)
+
+feynman-loop scope          # show which projects the proactive hooks fire in (default: all)
+feynman-loop scope add .    # only fire in this project (and any others you add)
+feynman-loop scope remove . # stop firing here
+feynman-loop scope all      # reset to firing everywhere
+```
+
+Scope governs the always-on hooks; the MCP tools stay callable in any host where you have
+configured the connector. Scope is a convenience, not a security sandbox.
 
 ## Setup
 
@@ -27,7 +104,7 @@ Extension). The API key field is optional; leave it empty for zero-key mode. Nee
 3.10+ on your machine. To build the bundle yourself: `./scripts/build_mcpb.sh`.
 
 **Terminal (Claude Code, other MCP hosts, hooks):** use an isolated virtualenv. Do not install
-into a global or conda environment, the optional vector stack (numpy, torch) is sensitive to
+into a global or conda environment; the optional vector stack (numpy, torch) is sensitive to
 ABI drift.
 
 ```
@@ -44,27 +121,40 @@ Normal pasted sources are grounded directly (the rubric sees the whole text, ins
 
 ## No API key? It still works
 
-You do not need an API key to use Feynman-Loop inside an MCP host. With no
-`ANTHROPIC_API_KEY` set, the server runs in **zero-key mode**: the chat model you already pay
-for (Claude, ChatGPT, Gemini, Cursor) does the language work under a strict protocol, and the
-server does the integrity work in code:
+You do not need an API key inside an MCP host. With no `ANTHROPIC_API_KEY` set, the server runs
+in **zero-key mode**: the chat model you already pay for does the language work under a strict
+protocol, and the server does the integrity work in code:
 
-- every credited verdict must carry a verbatim quote from YOUR explanation, and the server
+- every credited verdict must carry a verbatim quote from your explanation, and the server
   verifies the quote actually appears there; credit it cannot find is downgraded
 - rubric quotes are verified against your source passages the same way
 - every score is computed in code from the verified statuses, never taken from the model
 - minimum rubric sizes per depth are enforced, so a lazy one-point rubric is rejected
 
-With a key, an independent judge model does the rubric building and scoring instead, which is
-the strongest setup (your own chat model cannot be talked into leniency at all). The ledger
-records which judge scored every event, so your history stays honest about its own strength.
-The terminal and web surfaces call the API directly, so those two do need a key.
+With a key, an independent judge model builds and scores instead, which is the strongest setup
+(your own chat model cannot be talked into leniency). The ledger records which judge scored
+every event, so your history stays honest about its own strength. The terminal and web surfaces
+call the API directly, so those two do need a key.
 
-Storage: one local SQLite ledger plus a markdown knowledge-graph vault, at `$FEYNMAN_HOME`
-(default `~/.feynman-loop`). Your data never leaves your machine except for judging calls
-(and in zero-key mode, not even that: nothing leaves except what your host chat already sees).
-Cost control: set `FEYNMAN_JUDGE_MODEL` (default `claude-opus-4-8`; `claude-sonnet-4-6` is ~3x
-cheaper) and `FEYNMAN_FAST_MODEL` (default `claude-haiku-4-5`).
+## Data, privacy, and security
+
+- **Where your data lives:** one local SQLite ledger (owner-only, `chmod 0600`) plus a markdown
+  knowledge-graph vault, under `$FEYNMAN_HOME` (default `~/.feynman-loop`). It stores your
+  concept labels, a snapshot of the source material you give it, your verbatim explanations,
+  scores, and due dates. It never leaves your machine on its own.
+- **Where your data goes:** only judging calls leave the machine. With a key, your source
+  passages and explanations go to the Anthropic API under your key. In zero-key mode, the host
+  chat model you already use does the judging, so nothing leaves beyond what that host already
+  sees. Embeddings run locally. The web UI is localhost. There is no telemetry and no analytics.
+- **Secrets:** no API key is stored in this repo or its git history. Your key lives only in your
+  host's local config (for example Claude Desktop's config file), which is standard for every
+  MCP server. Zero-key mode needs no key at all.
+- **What the hooks record:** the shipped-code capture stores file names and line counts only,
+  never your code content. Out-of-scope projects are not recorded at all.
+- **Known sharp edges:** the web UI is unauthenticated and localhost-only, so anyone with local
+  access to your machine could use it and your key; treat it as a personal-machine tool. File
+  uploads to the web UI are not size-capped. Both are low risk for single-user local use, and
+  are why the web UI is optional and off by default.
 
 ## Test
 
@@ -74,29 +164,38 @@ cheaper) and `FEYNMAN_FAST_MODEL` (default `claude-haiku-4-5`).
 
 ## Run the demo (CLI)
 
-Needs the `embeddings` extra (`pip install -e ".[embeddings]"`) and an API key, set in the
-shell only. Never commit the key or paste it anywhere. Prefer `feynman-loop check`, which
-tells you what's missing instead of a traceback.
+Needs the `embeddings` extra and an API key set in the shell only. Never commit the key or
+paste it anywhere shared. Prefer `feynman-loop check`, which tells you what is missing instead
+of a traceback.
 
 ```
 export ANTHROPIC_API_KEY=...
-```
-
-Point it at a plain-text source and name a concept (the retrieval query is derived from the concept automatically):
-
-```
 .venv/bin/python -m feynman_loop.cli path/to/source.txt "Backpropagation"
 ```
 
-You type your explanation, then an empty line to submit. It returns the grounded gaps and, if your explanation is solid, a transfer challenge. Sources can be `.txt` or `.pdf` (text-based PDFs; scanned/image-only PDFs are not OCR'd).
+You type your explanation, then an empty line to submit. It returns the grounded gaps and, if
+your explanation is solid, a transfer challenge. Sources can be `.txt` or text-based `.pdf`
+(scanned or image-only PDFs are not OCR'd).
 
 ## Run the web UI
 
-Needs the `embeddings` extra and an API key, same as the CLI.
+Needs the `embeddings` extra and an API key.
 
 ```
 export ANTHROPIC_API_KEY=...
-.venv/bin/python -m uvicorn feynman_loop.web.app:app --port 8000
+.venv/bin/feynman-loop web --port 8000
 ```
 
-Open http://localhost:8000, paste your source **or upload a .pdf/.txt file**, name the concept, and explain it. The grounded gaps and the transfer challenge render in the browser.
+Open http://localhost:8000, paste your source or upload a `.pdf`/`.txt`, name the concept, and
+explain it. The grounded gaps and the transfer challenge render in the browser.
+
+## How the project is governed
+
+Three docs, read in order: `Principles.md` (the constitution), `Context.md` (current state and
+the full decision log), `Learnings.md` (guardrails and findings). Contributions are welcome;
+the design boundaries in `Principles.md` are deliberate and non-negotiable (no gamification,
+no forced interruption, grounding is mandatory).
+
+## License
+
+See `LICENSE`.
