@@ -152,10 +152,20 @@ def derive_profile(events: list[ReviewEvent], *, now: datetime | None = None) ->
     weak_modes = [t for t, _ in tag_counts.most_common(3)]
 
     lines: list[str] = []
-    if avg_explain is not None and avg_transfer is not None and avg_explain - avg_transfer >= 0.2:
+    # WHY: "you state better than you apply" is only honest as a WITHIN-concept comparison.
+    # Pooling an explain of concept A against a transfer of concept B manufactures a false
+    # "you can't apply" from apples-to-oranges evidence — a lie in the competence model the moat
+    # rests on (Principle 4: measure understanding, not activity) and a trust breach (one false
+    # "you're wrong" is unrecoverable). Restrict BOTH sides to concepts the learner did both on,
+    # so the claim and its numbers are auditable from the events. Group by label, like the
+    # concept count above. Empty intersection -> no within-concept evidence -> no claim.
+    paired = {e.concept_label for e in explains} & {e.concept_label for e in transfers}
+    pe = _avg([e for e in explains if e.concept_label in paired])
+    pt = _avg([e for e in transfers if e.concept_label in paired])
+    if pe is not None and pt is not None and pe - pt >= 0.2:
         lines.append(
-            f"You state concepts better than you apply them (explain {avg_explain:.0%} vs "
-            f"transfer {avg_transfer:.0%}). Push for application, not restatement."
+            f"You state concepts better than you apply them (explain {pe:.0%} vs "
+            f"transfer {pt:.0%}). Push for application, not restatement."
         )
     if weak_modes:
         top = weak_modes[0]

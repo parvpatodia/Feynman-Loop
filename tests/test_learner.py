@@ -66,6 +66,28 @@ def test_derive_profile_surfaces_apply_gap_and_weak_mode():
     assert "apply" in p["insight"]  # the explain-vs-apply gap is called out
 
 
+def test_apply_gap_requires_within_concept_evidence():
+    """The 'you state better than you apply' claim must rest on concepts the learner did BOTH
+    on, not on pooling an explain of one concept against a transfer of a DIFFERENT one. Pooling
+    disjoint concepts manufactures a false competence claim from apples-to-oranges evidence."""
+    # disjoint: explained A well, weak transfer on a different concept B. No within-concept gap.
+    disjoint = [
+        ReviewEvent(concept_id=uuid4(), concept_label="A", kind="explain", score=0.9),
+        ReviewEvent(concept_id=uuid4(), concept_label="B", kind="transfer", score=0.2),
+    ]
+    p = derive_profile(disjoint)
+    assert "apply" not in p["insight"]  # no evidence the SAME concept is stated-not-applied
+    assert p["avg_explain"] == 0.9 and p["avg_transfer"] == 0.2  # raw per-kind stats unchanged
+
+    # paired: the SAME concept explained 0.9 but transferred 0.2 -> the gap is real, surface it.
+    cid = uuid4()
+    paired = [
+        ReviewEvent(concept_id=cid, concept_label="A", kind="explain", score=0.9),
+        ReviewEvent(concept_id=cid, concept_label="A", kind="transfer", score=0.2),
+    ]
+    assert "apply" in derive_profile(paired)["insight"]
+
+
 def test_derive_profile_empty():
     assert derive_profile([])["reviews"] == 0
 

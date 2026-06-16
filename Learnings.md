@@ -59,3 +59,12 @@ EOF
   now refuses when ANY step is pending. Also: a retry budget that a caller can re-arm
   (make_transfer resetting remediation_done) is not a budget; bind bounds to the session, not
   the request.
+- **A learner-level insight must be auditable from the events it summarizes.** `derive_profile`
+  claimed "you state concepts better than you apply them" by comparing the average of ALL explain
+  events against the average of ALL transfer events — across DIFFERENT concepts. A user who
+  explained concept A well and gave a weak transfer on concept B was told they can't apply, with
+  no within-concept evidence for it. That is a false signal in the competence model (the moat) and
+  a trust breach (one false "you're wrong" is unrecoverable; the docstring itself promised the
+  insight is "auditable from the events"). Fix: restrict both sides of the gap to concepts the
+  user did BOTH on. Rule: when a metric generalizes about the learner, compute it from paired
+  within-concept evidence, never by pooling disjoint slices that happen to share an axis.
