@@ -68,3 +68,18 @@ EOF
   insight is "auditable from the events"). Fix: restrict both sides of the gap to concepts the
   user did BOTH on. Rule: when a metric generalizes about the learner, compute it from paired
   within-concept evidence, never by pooling disjoint slices that happen to share an axis.
+- **A proactive nudge must feed the loop, or it is just guilt.** The "you shipped ~N AI-written
+  lines without an explain-back" Stop-hook nudge was a dead-end: it named files but gave the host
+  no action, so it never became an actual explain-back. Bridged it in `due.py`: the SessionStart
+  context now tells the host to READ the shipped file and pass it as `source_text` to `start_check`,
+  grounding the check in the very code shipped, then have the learner explain it. The server still
+  stores no code (privacy property, Decision 20); the host, which already has the file, reads it
+  live. Still an OFFER at a natural boundary, never a gate (trust criterion). Rule: every proactive
+  surface must terminate in a concrete, low-friction entry into the core loop, not a notice.
+- **The product's adoption ceiling is behavioral, not a missing feature.** Brutally: the pitch is
+  "struggle first," and revealed preference is that people want LESS friction. The first user (Parv)
+  used it ~3 times and drifted. No commit fixes that. The honest levers are (a) attach to an
+  involuntary bite moment (which collides with the no-forced-interruption constitution: the owner's
+  call), (b) drive interaction cost toward zero (rapid mode), (c) target an audience for whom
+  canonical mastery IS the job (students/onboarding/interview-prep), NOT frontier researchers, whose
+  novel work has no groundable source. Do not pretend code changes flip these.

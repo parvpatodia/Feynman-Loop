@@ -90,6 +90,21 @@ def _context_block(data: dict) -> str:
             f"Recently shipped ~{p.get('lines', '?')} AI-written lines in {p.get('cwd', 'a project')}"
             f" ({files}) without an explain-back."
         )
+    if data["pending"]:
+        # WHY: "you shipped code you can't explain" is a dead-end guilt notice unless it feeds the
+        # actual loop. Bridge it: the host READS the shipped file and passes it as source_text to
+        # start_check, so the check is grounded in the very code the learner shipped, then THEY
+        # explain it. The server never stores code (privacy property, Decision 20); the host, which
+        # already has the file open, reads it live. Still an OFFER at a natural boundary, never a
+        # gate (the trust criterion + no forced interruption in v1).
+        target = next((f for p in data["pending"] for f in p.get("files", []) if f),
+                      "the file you shipped")
+        lines.append(
+            f"To turn that shipped code into understanding (not a guilt notice): at a natural "
+            f"moment, OFFER to read {target} yourself and pass it as source_text to start_check, "
+            f"so the check is grounded in the code they shipped; then have the learner explain, in "
+            f"their own words, what it does and why. If they pass, it just stays for next time."
+        )
     insight = data["profile"].get("insight", "")
     if lines and insight and insight != "No reviews yet.":
         lines.append(f"Learner pattern: {insight}")

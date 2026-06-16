@@ -86,6 +86,21 @@ def test_pending_is_surfaced_once_then_consumed(tmp_path):
     assert second["pending"] == []  # consumed: surfaced once, never nags twice
 
 
+def test_pending_shipped_work_bridges_into_the_loop(tmp_path):
+    """A shipped-work nudge must FEED the loop, not dead-end as a guilt notice. It tells the host
+    to ground an explain-back in the very file that was shipped (server stores no code; the host
+    reads it live), and it stays an offer, never a gate."""
+    (tmp_path / "feynman_pending.json").write_text(json.dumps({
+        "items": [{"at": "2026-06-10T00:00:00Z", "cwd": "/proj", "lines": 240,
+                   "files": ["auth.py", "models.py"]}],
+    }))
+    block = _context_block(collect(root=tmp_path, now=_NOW))
+    assert "240 AI-written lines" in block   # the existing notice is preserved
+    assert "source_text" in block            # bridged into the loop, grounded in the shipped code
+    assert "read auth.py" in block           # names the concrete artifact, not "your code"
+    assert "Do not force it" in block        # still an offer (trust criterion / no forced interruption)
+
+
 def test_applescript_string_survives_hostile_text():
     from feynman_loop.due import _applescript_string
 
