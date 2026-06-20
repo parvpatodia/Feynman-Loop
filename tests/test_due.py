@@ -4,6 +4,7 @@ consume-once semantics of pending shipped-work nudges, and the notification push
 import json
 from datetime import datetime, timedelta, timezone
 
+from feynman_loop import settings
 from feynman_loop.due import _context_block, _notification_text, collect
 from feynman_loop.models import Citation, Concept, RubricPoint, SourceRef, SourceTier, UserState
 from feynman_loop.storage import JsonConceptStore, JsonIdentity, JsonUserStateStore
@@ -11,13 +12,15 @@ from feynman_loop.storage import JsonConceptStore, JsonIdentity, JsonUserStateSt
 _NOW = datetime(2026, 6, 10, tzinfo=timezone.utc)
 
 
-def _seed(root, label="Backpropagation", due_delta_days=-1, understanding=0.45, gaps=()):
+def _seed(root, label="Backpropagation", due_delta_days=-1, understanding=0.45, gaps=(),
+          project=None):
     uid = JsonIdentity(root / "feynman_user.json").user_id()
     c = Concept(
         label=label,
         source_ref=SourceRef(tier=SourceTier.MODEL_FALLBACK, doc_label="general knowledge (unverified)",
                              retrieval_query=label),
         rubric=[RubricPoint(criterion="x", citation=Citation(doc_label="d", quote="q"))],
+        project=project,
     )
     JsonConceptStore(root / "feynman_concepts.json").put(c)
     JsonUserStateStore(root / "feynman_state.json").put(UserState(
@@ -131,6 +134,44 @@ def test_scope_silences_out_of_scope_projects(tmp_path):
     assert collect(root=tmp_path, now=_NOW, cwd=None)["in_scope"] is True
     # ...but a known cwd outside the allowlist is out of scope.
     assert collect(root=tmp_path, now=_NOW, cwd="/anything")["in_scope"] is False
+
+
+def test_due_is_scoped_to_the_session_project(tmp_path, monkeypatch):
+    """Spaced recall is project-scoped: a session in project A surfaces A's concepts plus the
+    global bucket, never project B's. The global (untagged) concept surfaces in both."""
+    # deterministic project ids: outside any repo, project == the normalized cwd
+    monkeypatch.setattr(settings, "_git_root", lambda cwd: None)
+    pa, pb = settings.project_for("/proj/a"), settings.project_for("/proj/b")
+    _seed(tmp_path, label="Diffusion Policy", project=pa)
+    _seed(tmp_path, label="SLURM Arrays", project=pb)
+    _seed(tmp_path, label="Gradient Descent", project=None)   # global / uncategorized
+
+    in_a = collect(root=tmp_path, now=_NOW, cwd="/proj/a")
+    assert {d["concept"] for d in in_a["due"]} == {"Diffusion Policy", "Gradient Descent"}
+    assert in_a["tracked"] == 3                               # B's concept is hidden, not gone
+
+    in_b = collect(root=tmp_path, now=_NOW, cwd="/proj/b")
+    assert {d["concept"] for d in in_b["due"]} == {"SLURM Arrays", "Gradient Descent"}
+
+    # no cwd (an explicit `feynman-loop due`) fails OPEN: every project's due concepts show
+    everywhere = collect(root=tmp_path, now=_NOW, cwd=None)
+    assert {d["concept"] for d in everywhere["due"]} == {
+        "Diffusion Policy", "SLURM Arrays", "Gradient Descent"}
+
+
+def test_context_block_tells_host_to_tag_new_concepts_with_the_project(tmp_path, monkeypatch):
+    """The mint site (MCP server) has no cwd, so the SessionStart block — which does — must tell the
+    host to pass its cwd to start_check, or new concepts can never be filed under the project."""
+    monkeypatch.setattr(settings, "_git_root", lambda cwd: None)
+    _seed(tmp_path, due_delta_days=-1, project=settings.project_for("/proj/a"))
+    block = _context_block(collect(root=tmp_path, now=_NOW, cwd="/proj/a"))
+    assert 'cwd="/proj/a"' in block          # the literal cwd, for the host to copy verbatim
+    assert "start_check" in block
+    # the instruction is silent in an otherwise-quiet session (nothing due -> no block at all)
+    quiet = collect(root=tmp_path, now=_NOW, cwd="/proj/a")
+    quiet["due"] = []
+    quiet["pending"] = []
+    assert _context_block(quiet) == ""
 
 
 def test_applescript_string_survives_hostile_text():

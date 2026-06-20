@@ -99,6 +99,31 @@ and papers. See `PRINCIPLES.md` for the full philosophy.
 
 ## NEXT TASK (resume here)
 
+**Latest (2026-06-20): spaced recall is now project-scoped (Decision 26, below). Done + tested +
+live smoke.** No open follow-up required; a future option is to also project-filter the shipped-work
+`pending` nudges (left global for now to avoid the consume-once data-loss complication).
+
+**Decision 26 — spaced recall is project-scoped (2026-06-20).** One global due-queue surfaced
+unrelated concepts (e.g. Gradient Descent) inside a project chat. Now each `Concept` carries a
+`project` tag and `due` shows only the session's project plus the global (untagged) bucket.
+- **Project identity = git repo root** (normalized cwd fallback), so one repo = one bucket, a
+  sub-directory never forks a repo's history, zero config, and it composes with the existing scope
+  gate. Single derivation in `settings.project_for(cwd)`, used by BOTH the filter and the tag.
+- **The mint site has no cwd.** Concepts are minted in the MCP server, which is launched from an
+  arbitrary directory (`mcp_server.py: _ROOT = paths.home()`), so it cannot derive the project
+  itself. `start_check` gained an optional `cwd` param; the SessionStart block — the one surface
+  that HAS the cwd — tells the host to pass it; the server resolves it with the SAME `project_for`,
+  so the stored tag and the filter key match by construction.
+- **Rejected** a hook-written "active project" handoff file: it races across concurrent
+  multi-project sessions and can confidently mis-file a concept so it never resurfaces in its real
+  project — a trust-criterion violation. The chosen path degrades to GLOBAL (surfaces everywhere)
+  whenever cwd is absent: a due concept is never silently hidden, only ever over-surfaced.
+- **No schema migration.** Storage holds the pydantic JSON blob, so `project: str | None = None`
+  makes existing rows back-fill to global on read, for free. First-touch wins: re-explaining a
+  concept from another project does not move its tag. Rule in `settings.concept_in_project`; both
+  the filter and the scope gate fail OPEN on unknown cwd. Live smoke (real git repo + the real
+  `due --context` subprocess) confirmed it end to end.
+
 Data model is fully locked (D9–D11) and written as Pydantic models in `feynman_loop/models/`.
 
 All four planning decisions are now settled:

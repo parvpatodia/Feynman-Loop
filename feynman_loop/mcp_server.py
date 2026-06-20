@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from mcp.server.fastmcp import FastMCP
 
 import feynman_loop.loop as loop_ops
-from feynman_loop import paths, providers
+from feynman_loop import paths, providers, settings
 from feynman_loop.db import stores_for
 from feynman_loop.judge.claude_judge import DEPTH_RANGES, ClaudeJudge, depth_spec
 from feynman_loop.learner import (
@@ -369,7 +369,8 @@ def _review_response(chk: _Check, report, state, rehearsed: bool, *, judge: str,
 
 
 @mcp.tool()
-def start_check(concept: str, source_text: str = "", rebuild: bool = False, depth: str = "") -> dict:
+def start_check(concept: str, source_text: str = "", rebuild: bool = False, depth: str = "",
+                cwd: str = "") -> dict:
     """Start a Feynman-Loop check on a concept. Pass source_text = the relevant material already in
     context (code, a paper, notes) to ground the check in it; leave it empty to be tested from
     general knowledge. A concept the learner has checked before continues its existing history.
@@ -377,8 +378,15 @@ def start_check(concept: str, source_text: str = "", rebuild: bool = False, dept
     the mechanism), or "expert" (boundary conditions and failure modes too). Changing depth on a
     known concept rebuilds its rubric. rebuild=True re-derives the rubric (use when one seems off
     or stale); without a new source the rebuilt rubric comes from general knowledge, flagged.
+    Pass cwd = your current working directory so a NEW concept is filed under that project and
+    spaced recall surfaces it in that project, not in unrelated sessions; omit it and the concept
+    is global (surfaces everywhere). It never moves the project of a concept you already have.
     Returns a check_id for the other tools."""
     concept = " ".join(concept.split())  # normalize: "Backprop\n " and "backprop" are one concept
+    # WHY here, not from os.getcwd(): the server is launched from an arbitrary directory, so it must
+    # be TOLD the session's cwd. project_for collapses any sub-directory to the repo root, so the
+    # tag matches what `due` filters on. Only a freshly minted concept is tagged (first-touch wins).
+    new_project = settings.project_for(cwd)
     existing = _make_concept_store().find_by_label(concept)
     requested_depth = depth if depth in ("overview", "working", "expert") \
         else (existing.depth if existing else "working")
@@ -404,7 +412,8 @@ def start_check(concept: str, source_text: str = "", rebuild: bool = False, dept
         # WHY: keep the existing concept id so history/resurfacing stay attached
         update = {"source_ref": source_ref, "rubric": [], "depth": requested_depth, "source_text": text}
         c = existing.model_copy(update=update) if existing \
-            else Concept(label=concept, source_ref=source_ref, depth=requested_depth, source_text=text)
+            else Concept(label=concept, source_ref=source_ref, depth=requested_depth,
+                         source_text=text, project=new_project)
         if independent:
             c.rubric = _make_judge().build_rubric(concept=c, passages=passages)
     elif existing and existing.rubric and not rebuild and not depth_changed:
@@ -431,7 +440,8 @@ def start_check(concept: str, source_text: str = "", rebuild: bool = False, dept
         # WHY on rebuild: keep the concept id (history stays attached) but flip the source tier to
         # model-fallback, because a no-source, no-snapshot rebuild cannot claim the old grounding.
         c = existing.model_copy(update={"rubric": [], "source_ref": source_ref, "depth": requested_depth}) \
-            if existing else Concept(label=concept, source_ref=source_ref, depth=requested_depth)
+            if existing else Concept(label=concept, source_ref=source_ref, depth=requested_depth,
+                                     project=new_project)
         if independent:
             c.rubric = _make_judge().build_rubric(concept=c, passages=[])
 

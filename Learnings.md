@@ -102,3 +102,20 @@ EOF
   the placeholders `sk-ant-` and `sk-ant-real` (example/test text) — no real key was ever committed.
   The key lives only in the local Claude Desktop config (plaintext, standard for every MCP server).
   Verify a suspected leak with `git log -S`/`-p` before treating it as a breach or scrubbing history.
+- **Tag a record where the source data actually exists at write time — not where the task says.**
+  Making spaced recall project-scoped read like "add a project column + a migration and tag at
+  mint." Against the real code, all three premises broke: the mint site (MCP `start_check`) is
+  launched from an arbitrary cwd and never sees the session's project; storage is a pydantic JSON
+  blob, so there is no column and no migration (a `project: str | None = None` field back-fills old
+  rows to global for free on read); and the session cwd lives ONLY in the hook payload. The fix
+  routes the data to the mint site: the SessionStart hook (which HAS cwd) tells the host to pass it
+  to `start_check`, and the server + `due` both derive the project from the SAME `project_for(cwd)`
+  (git root), so the stored tag and the filter key match by construction. Rule: before adding a
+  derived tag, find the one surface that holds the source data at write time; if the mint site
+  lacks it, route the data there or default safe — never assume the field can be derived in place.
+- **When a tag can be wrong, prefer "too visible" over "silently hidden."** Rejected a hook-written
+  "active project" handoff file for the tag: it races across concurrent multi-project sessions and
+  would confidently mis-file a concept, hiding it from its real project forever — a trust-criterion
+  violation. Chose the channel that degrades to GLOBAL (surfaces everywhere) on any doubt, so a due
+  concept is never silently dropped, only over-surfaced. The asymmetry is encoded in
+  `concept_in_project`: global concepts and an unknown session project both fail OPEN.

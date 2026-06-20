@@ -11,6 +11,7 @@ judges + renders the grounded gap.
 
 from __future__ import annotations
 
+import os
 import sys
 from uuid import uuid4
 
@@ -22,6 +23,7 @@ from feynman_loop.loop import (
     run_review,
     score_transfer,
 )
+from feynman_loop import settings
 from feynman_loop.models import Concept, SourceRef, SourceTier
 from feynman_loop.render import (
     render_gap_report,
@@ -85,6 +87,8 @@ def main(argv: list[str]) -> int:
             retrieval_query=retrieval_query,
         ),
         source_text=text.strip()[:SNAPSHOT_LIMIT],
+        # the terminal cwd IS the project here (unlike the MCP server, the CLI runs in it)
+        project=settings.project_for(os.getcwd()),
     )
 
     judge = ClaudeJudge()

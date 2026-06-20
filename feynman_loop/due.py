@@ -37,12 +37,20 @@ def collect(root: Path | None = None, now: datetime | None = None,
     uid = stores.identity.user_id()
     store = stores.states
 
+    # The project this session is in (from the git root of cwd). None when cwd is unknown, which
+    # makes the project filter fail OPEN — an explicit `feynman-loop due` (no cwd) still shows all.
+    current_project = settings.project_for(cwd)
+
     due, tracked = [], 0
     for c in stores.concepts.all():
         st = store.get(user_id=uid, concept_id=c.id)
         if st is None:
             continue
         tracked += 1
+        # project scope: surface this project's concepts plus the global bucket; a concept tagged
+        # to a DIFFERENT project does not surface here (tracked still counts it — it is not gone).
+        if not settings.concept_in_project(c.project, current_project):
+            continue
         if st.next_due_at and st.next_due_at <= now:
             due.append({
                 "concept": c.label,
@@ -70,7 +78,8 @@ def collect(root: Path | None = None, now: datetime | None = None,
     profile = derive_profile(stores.events.events())
     return {"due": due, "pending": pending, "tracked": tracked, "profile": profile,
             "mode": settings.get_mode(root),
-            "in_scope": settings.path_in_scope(cwd, settings.get_scope(root))}
+            "in_scope": settings.path_in_scope(cwd, settings.get_scope(root)),
+            "current_project": current_project, "cwd": cwd}
 
 
 def _context_block(data: dict) -> str:
@@ -110,6 +119,17 @@ def _context_block(data: dict) -> str:
             f"moment, OFFER to read {target} yourself and pass it as source_text to start_check, "
             f"so the check is grounded in the code they shipped; then have the learner explain, in "
             f"their own words, what it does and why. If they pass, it just stays for next time."
+        )
+    # WHY: spaced recall is project-scoped, but the MCP server that mints concepts never sees the
+    # session cwd (it is launched from an arbitrary directory). So the one surface that DOES have
+    # the cwd — this hook — tells the host to pass it to start_check, which lets the server file the
+    # new concept under THIS project. Omitting it is safe: the concept just stays global (surfaces
+    # everywhere), never mis-filed. The literal cwd is given so the host copies it verbatim.
+    if lines and data.get("cwd"):
+        lines.append(
+            f'This session is in project "{data["cwd"]}". When you OFFER an explain-back and call '
+            f'start_check, pass cwd="{data["cwd"]}" so the new concept is filed under THIS project '
+            f"and resurfaces here, not in unrelated sessions."
         )
     insight = data["profile"].get("insight", "")
     if lines and insight and insight != "No reviews yet.":

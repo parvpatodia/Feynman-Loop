@@ -85,6 +85,13 @@ class Concept(BaseModel):
     # Stays local (SQLite); empty for doc-backed or knowledge-only concepts.
     source_text: str = ""
     created_at: datetime = Field(default_factory=_utcnow)
+    # WHY: the project this concept was first captured in (a git-root path), so spaced recall is
+    # scoped to the project you are working in instead of one global queue surfacing unrelated
+    # concepts in the wrong session. None == global/uncategorized: it surfaces in every project.
+    # Storage holds the pydantic JSON blob, so old rows deserialize with project=None and back-fill
+    # to global for free, with no schema migration. First-touch wins: re-explaining a concept in a
+    # different project does not move its tag.
+    project: str | None = None
 
     # NOTE: there is deliberately no goal_id here. Decision 11 moved the concept->goal tie into
     # the RelevanceLink join table (many-to-many), so a concept can serve several goals without

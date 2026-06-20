@@ -66,3 +66,54 @@ def test_scope_and_mode_coexist(tmp_path):
     settings.add_scope_path(tmp_path, "/Users/x/study")
     assert settings.get_mode(tmp_path) == "commit"                  # neither clobbers the other
     assert settings.get_scope(tmp_path) == ["/Users/x/study"]
+
+
+# --- project identity ---
+
+def test_project_for_none_when_cwd_unknown():
+    assert settings.project_for(None) is None      # unknown cwd -> no project (callers fail open)
+    assert settings.project_for("") is None
+
+
+def test_project_for_uses_git_root_collapsing_subdirs(monkeypatch):
+    # a sub-directory of a repo resolves to the SAME project as the repo root: one repo, one bucket
+    monkeypatch.setattr(settings, "_git_root", lambda cwd: "/Users/x/repo")
+    assert settings.project_for("/Users/x/repo") == "/Users/x/repo"
+    assert settings.project_for("/Users/x/repo/pkg/sub") == "/Users/x/repo"
+
+
+def test_project_for_falls_back_to_cwd_outside_a_repo(monkeypatch):
+    monkeypatch.setattr(settings, "_git_root", lambda cwd: None)   # not a repo / no git
+    assert settings.project_for("/tmp/loose/dir") == "/tmp/loose/dir"
+    # the fallback is normalized, like scope paths, so it matches what `due` filters on
+    assert settings.project_for("/tmp/loose/../loose/dir") == "/tmp/loose/dir"
+
+
+def test_git_root_returns_repo_toplevel(tmp_path):
+    """Real git: a sub-directory of a repo reports the repo root; both due and the server agree."""
+    import shutil
+    import subprocess
+    if shutil.which("git") is None:
+        pytest.skip("git not available")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    sub = tmp_path / "pkg" / "deep"
+    sub.mkdir(parents=True)
+    # macOS /private symlink and the like: compare against git's own normalized answer
+    expected = settings._norm(str(tmp_path.resolve()))
+    assert settings.project_for(str(sub)) == expected
+
+
+def test_git_root_failsafe_when_git_unavailable(monkeypatch):
+    def _boom(*a, **k):
+        raise OSError("git not found")
+    monkeypatch.setattr(settings.subprocess, "run", _boom)
+    assert settings._git_root("/anywhere") is None         # never raises into a hook/server
+
+
+def test_concept_in_project_rules():
+    p = "/Users/x/repo"
+    assert settings.concept_in_project(None, p) is True        # global surfaces in any project
+    assert settings.concept_in_project(None, None) is True     # global, unknown session
+    assert settings.concept_in_project(p, None) is True        # unknown session -> fail open
+    assert settings.concept_in_project(p, p) is True           # same project
+    assert settings.concept_in_project(p, "/Users/x/other") is False  # different project: hidden

@@ -5,6 +5,7 @@ and error paths."""
 import pytest
 
 from feynman_loop import mcp_server as srv
+from feynman_loop import settings
 from feynman_loop.models import (
     Citation,
     Gap,
@@ -137,6 +138,28 @@ def test_tier3_when_no_source():
     assert started["grounded"] is False
     judged = srv.judge_explanation(started["check_id"], "it's disorder")
     assert judged["grounded"] is False
+
+
+def test_new_concept_is_tagged_with_the_session_project(monkeypatch):
+    """A concept minted while working in a project is filed under it, so spaced recall scopes it."""
+    monkeypatch.setattr(settings, "_git_root", lambda cwd: None)  # outside a repo: project == cwd
+    srv.start_check("Backpropagation", source_text="backprop applies the chain rule.", cwd="/proj/a")
+    c = srv._make_concept_store().find_by_label("Backpropagation")
+    assert c.project == settings.project_for("/proj/a")
+
+
+def test_concept_is_global_when_no_cwd_passed():
+    """Omitting cwd is the safe degradation: global concepts surface everywhere, never mis-filed."""
+    srv.start_check("Entropy", source_text="entropy measures surprise.")
+    assert srv._make_concept_store().find_by_label("Entropy").project is None
+
+
+def test_existing_concept_keeps_its_project_first_touch_wins(monkeypatch):
+    """Re-explaining a concept from a different project must NOT move its tag (predictable home)."""
+    monkeypatch.setattr(settings, "_git_root", lambda cwd: None)
+    srv.start_check("Osmosis", source_text="osmosis moves solvent.", cwd="/proj/a")
+    srv.start_check("Osmosis", source_text="osmosis again, from elsewhere.", cwd="/proj/b")
+    assert srv._make_concept_store().find_by_label("Osmosis").project == settings.project_for("/proj/a")
 
 
 def test_unknown_check_id_is_handled():
