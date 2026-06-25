@@ -8,6 +8,7 @@
   feynman-loop mode [MODE]     show, or set, how proactive the loop is (off|nudge|commit)
   feynman-loop scope [...]     which projects the proactive hooks fire in (default: all)
   feynman-loop projects        list concepts grouped by project (audit project-scoped recall)
+  feynman-loop reproject C [P] move concept C to project P (default: cwd), or --global
 """
 
 from __future__ import annotations
@@ -79,6 +80,13 @@ def main(argv: list[str] | None = None) -> int:
     p_scope.add_argument("path", nargs="?", default=None,
                          help="project directory for add/remove (default: current directory)")
 
+    p_reproj = sub.add_parser("reproject", help="move a concept to a project, or --global")
+    p_reproj.add_argument("concept", help="concept label (as shown by `feynman-loop projects`)")
+    p_reproj.add_argument("path", nargs="?", default=None,
+                          help="project directory (default: current directory)")
+    p_reproj.add_argument("--global", dest="to_global", action="store_true",
+                          help="clear the tag so the concept becomes global (surfaces everywhere)")
+
     args = parser.parse_args(argv)
 
     if args.cmd == "init":
@@ -111,6 +119,25 @@ def main(argv: list[str] | None = None) -> int:
         from feynman_loop.due import projects, render_projects
 
         print(render_projects(projects(paths.home())))
+        return 0
+    if args.cmd == "reproject":
+        import os
+
+        from feynman_loop import paths, settings
+        from feynman_loop.db import stores_for
+
+        store = stores_for(paths.home()).concepts
+        concept = store.find_by_label(args.concept)
+        if concept is None:
+            print(f"no concept matches {args.concept!r}. Run `feynman-loop projects` for exact labels.")
+            return 2
+        # WHY this is allowed despite Decision 26's "first-touch wins": that rule blocks ACCIDENTAL
+        # movement when you re-explain a concept elsewhere. This is the deliberate, explicit escape
+        # hatch — the user names the concept and the target, and it is reversible (re-run to undo).
+        new_project = None if args.to_global else settings.project_for(args.path or os.getcwd())
+        store.put(concept.model_copy(update={"project": new_project}))
+        where = "global (surfaces in every project)" if new_project is None else new_project
+        print(f"reprojected {concept.label!r} -> {where}.")
         return 0
     if args.cmd == "export":
         import json
