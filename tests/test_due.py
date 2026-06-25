@@ -5,7 +5,13 @@ import json
 from datetime import datetime, timedelta, timezone
 
 from feynman_loop import settings
-from feynman_loop.due import _context_block, _notification_text, collect
+from feynman_loop.due import (
+    _context_block,
+    _notification_text,
+    collect,
+    projects,
+    render_projects,
+)
 from feynman_loop.models import Citation, Concept, RubricPoint, SourceRef, SourceTier, UserState
 from feynman_loop.storage import JsonConceptStore, JsonIdentity, JsonUserStateStore
 
@@ -172,6 +178,27 @@ def test_context_block_tells_host_to_tag_new_concepts_with_the_project(tmp_path,
     quiet["due"] = []
     quiet["pending"] = []
     assert _context_block(quiet) == ""
+
+
+def test_projects_groups_concepts_named_buckets_first_then_global(tmp_path):
+    """The audit view groups concepts by project, names the global bucket explicitly, and orders
+    named projects before global (global is the catch-all, not a project)."""
+    _seed(tmp_path, label="SLURM Arrays", project="/repo/kd", understanding=0.6)
+    _seed(tmp_path, label="Diffusion Policy", project="/repo/av", understanding=0.8)
+    _seed(tmp_path, label="Gradient Descent", project=None, understanding=0.5)
+
+    buckets = projects(root=tmp_path)
+    assert [b["project"] for b in buckets] == ["/repo/av", "/repo/kd", None]  # named sorted, global last
+    assert [c["label"] for c in buckets[0]["concepts"]] == ["Diffusion Policy"]
+
+    text = render_projects(buckets)
+    assert "/repo/av" in text and "/repo/kd" in text
+    assert "global / uncategorized" in text          # the catch-all is named, not blank
+    assert "understanding 80%" in text               # state is surfaced, not just labels
+
+
+def test_projects_empty_ledger_is_handled():
+    assert render_projects([]) == "No concepts tracked yet."
 
 
 def test_applescript_string_survives_hostile_text():

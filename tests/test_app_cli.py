@@ -45,3 +45,23 @@ def test_scope_add_defaults_to_cwd(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert main(["scope", "add"]) == 0                       # no PATH -> current directory
     assert settings.get_scope(tmp_path) == [settings._norm(str(tmp_path))]
+
+
+def test_projects_lists_concepts_grouped_by_bucket(tmp_path, monkeypatch, capsys):
+    """`feynman-loop projects` is the read-only audit of project-scoped recall: it shows each
+    project's concepts and the global bucket, so the user can verify what is filed where."""
+    monkeypatch.setenv("FEYNMAN_HOME", str(tmp_path))
+    from feynman_loop.db import stores_for
+    from feynman_loop.models import Concept, SourceRef, SourceTier
+
+    stores = stores_for(tmp_path)
+    for label, project in [("Diffusion Policy", "/repo/av"), ("Gradient Descent", None)]:
+        stores.concepts.put(Concept(
+            label=label, project=project,
+            source_ref=SourceRef(tier=SourceTier.MODEL_FALLBACK,
+                                 doc_label="general knowledge (unverified)", retrieval_query=label)))
+
+    assert main(["projects"]) == 0
+    out = capsys.readouterr().out
+    assert "/repo/av" in out and "Diffusion Policy" in out          # named project + its concept
+    assert "global / uncategorized" in out and "Gradient Descent" in out  # the global bucket

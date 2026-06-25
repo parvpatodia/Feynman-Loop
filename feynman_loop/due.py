@@ -82,6 +82,45 @@ def collect(root: Path | None = None, now: datetime | None = None,
             "current_project": current_project, "cwd": cwd}
 
 
+def projects(root: Path | None = None) -> list[dict]:
+    """Group every tracked concept by its project bucket — the read-only AUDIT view for
+    project-scoped recall, so the user can see exactly what is filed where and what is still
+    global (which is what would surface everywhere). Read-only: it never mutates the ledger.
+    Returns buckets ordered named-projects-first then global, each:
+    {"project": <id|None>, "concepts": [{"label", "understanding"}, ...]}."""
+    root = root or paths.home()
+    stores = stores_for(root)
+    uid = stores.identity.user_id()
+    grouped: dict[str | None, list[dict]] = {}
+    for c in stores.concepts.all():
+        st = stores.states.get(user_id=uid, concept_id=c.id)
+        grouped.setdefault(c.project, []).append({
+            "label": c.label,
+            "understanding": round(st.understanding_level, 2) if st else None,
+        })
+    for items in grouped.values():
+        items.sort(key=lambda d: d["label"].casefold())
+    # named projects first (sorted), the global bucket last: it is the catch-all, not a project
+    named = sorted((p for p in grouped if p is not None), key=str.casefold)
+    order = named + ([None] if None in grouped else [])
+    return [{"project": p, "concepts": grouped[p]} for p in order]
+
+
+def render_projects(buckets: list[dict]) -> str:
+    """Human-readable rendering of projects(); public because app_cli is the only caller."""
+    if not buckets:
+        return "No concepts tracked yet."
+    out: list[str] = []
+    for b in buckets:
+        title = (b["project"] if b["project"] is not None
+                 else "global / uncategorized (surfaces in every project)")
+        out.append(f"{title}  ({len(b['concepts'])})")
+        for c in b["concepts"]:
+            u = f" — understanding {c['understanding']:.0%}" if c["understanding"] is not None else ""
+            out.append(f"  - {c['label']}{u}")
+    return "\n".join(out)
+
+
 def _context_block(data: dict) -> str:
     """The SessionStart context. Only emitted when something is actionable."""
     if data.get("mode") == "off" or not data.get("in_scope", True):

@@ -7,6 +7,7 @@
   feynman-loop mcp             run the MCP server on stdio (what host configs invoke)
   feynman-loop mode [MODE]     show, or set, how proactive the loop is (off|nudge|commit)
   feynman-loop scope [...]     which projects the proactive hooks fire in (default: all)
+  feynman-loop projects        list concepts grouped by project (audit project-scoped recall)
 """
 
 from __future__ import annotations
@@ -63,6 +64,8 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("mcp", help="run the MCP server (stdio)")
 
+    sub.add_parser("projects", help="list concepts grouped by project (audit project-scoped recall)")
+
     p_exp = sub.add_parser("export", help="dump the full ledger as JSON (backup/portability)")
     p_exp.add_argument("--out", default=None, help="write to a file instead of stdout")
 
@@ -102,6 +105,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "mcp":
         from feynman_loop.mcp_server import mcp
         mcp.run()
+        return 0
+    if args.cmd == "projects":
+        from feynman_loop import paths
+        from feynman_loop.due import projects, render_projects
+
+        print(render_projects(projects(paths.home())))
         return 0
     if args.cmd == "export":
         import json
