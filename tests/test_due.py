@@ -110,6 +110,26 @@ def test_pending_shipped_work_bridges_into_the_loop(tmp_path):
     assert "Do not force it" in block        # still an offer (trust criterion / no forced interruption)
 
 
+def test_pending_is_project_scoped_and_preserves_other_projects(tmp_path, monkeypatch):
+    """A shipped-work nudge from another project must NOT be consumed while you work elsewhere; it
+    waits for that project's session. The current project's (and global) items surface and clear."""
+    monkeypatch.setattr(settings, "_git_root", lambda cwd: None)   # project == normalized cwd
+    (tmp_path / "feynman_pending.json").write_text(json.dumps({"items": [
+        {"at": "2026-06-10T00:00:00Z", "cwd": "/proj/a", "lines": 120, "files": ["a.py"]},
+        {"at": "2026-06-10T00:00:00Z", "cwd": "/proj/b", "lines": 200, "files": ["b.py"]},
+        {"at": "2026-06-10T00:00:00Z", "cwd": "", "lines": 50, "files": ["g.py"]},  # global/unknown
+    ]}))
+    data = collect(root=tmp_path, now=_NOW, cwd="/proj/a")
+    assert {f for p in data["pending"] for f in p["files"]} == {"a.py", "g.py"}   # A's + global, not B's
+    # B's nudge is preserved on disk for B's own session, never silently consumed
+    left = json.loads((tmp_path / "feynman_pending.json").read_text())["items"]
+    assert [it["cwd"] for it in left] == ["/proj/b"]
+    # opening B later surfaces B's nudge and clears the file (nothing left to keep)
+    data_b = collect(root=tmp_path, now=_NOW, cwd="/proj/b")
+    assert {f for p in data_b["pending"] for f in p["files"]} == {"b.py"}
+    assert not (tmp_path / "feynman_pending.json").exists()
+
+
 def test_off_mode_silences_proactive_surfaces_but_not_explicit_due(tmp_path):
     """mode=off mutes the SessionStart context and the OS notification, yet the data is still
     aggregated so an explicit `feynman-loop due` (the _human path) keeps working."""

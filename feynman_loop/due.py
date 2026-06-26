@@ -66,14 +66,26 @@ def collect(root: Path | None = None, now: datetime | None = None,
 
     # pending = AI-written work shipped without an explain-back (written by the Stop hook).
     # Reading consumes it: each item is surfaced once; ignoring it is allowed and costs nothing.
+    # Project scope: each item carries the cwd it was shipped in, so surface only THIS project's
+    # items (plus global/unknown) and KEEP the rest for their own session. WHY rewrite instead of
+    # delete: consume-once must not discard a nudge that belongs to a different project — that would
+    # silently drop a real "you shipped code you can't explain" signal the moment you happened to
+    # open an unrelated project first.
     pending_path = root / "feynman_pending.json"
     pending: list[dict] = []
     if pending_path.exists():
         try:
-            pending = json.loads(pending_path.read_text()).get("items", [])
+            all_items = json.loads(pending_path.read_text()).get("items", [])
         except (json.JSONDecodeError, OSError):
-            pending = []
-        pending_path.unlink(missing_ok=True)
+            all_items = []
+        others: list[dict] = []
+        for item in all_items:
+            item_project = settings.project_for(item.get("cwd") or None)
+            (pending if settings.concept_in_project(item_project, current_project) else others).append(item)
+        if others:
+            pending_path.write_text(json.dumps({"items": others}, indent=2))
+        else:
+            pending_path.unlink(missing_ok=True)
 
     profile = derive_profile(stores.events.events())
     return {"due": due, "pending": pending, "tracked": tracked, "profile": profile,
