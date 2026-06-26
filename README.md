@@ -96,6 +96,25 @@ feynman-loop scope all      # reset to firing everywhere
 Scope governs the always-on hooks; the MCP tools stay callable in any host where you have
 configured the connector. Scope is a convenience, not a security sandbox.
 
+### Project-scoped recall
+
+Spaced recall is scoped to the project you are working in. A concept is filed under the project
+(the git repo root) where you first explained it, and a session's due nudge surfaces only that
+project's concepts plus a global bucket, so unrelated concepts do not interrupt the wrong project.
+Concepts that are not filed under a project are global and surface everywhere.
+
+```
+feynman-loop projects                        # audit: every concept grouped by project (+ global)
+feynman-loop reproject "Backprop" .          # file a concept under this project (default: cwd)
+feynman-loop reproject "Backprop" --global   # send it back to the global bucket
+```
+
+A concept gets its project when the host passes the working directory to the check; the
+SessionStart hook prompts the host to do this. Concepts you captured before this, or in a session
+where the directory was not passed, stay global until you `reproject` them. Re-explaining a concept
+in another project never moves it on its own; `reproject` is the explicit, reversible way to move
+it (run it again, or with `--global`, to undo).
+
 ## Setup
 
 **Terminal (recommended; Claude Code, Cursor, any MCP host, and the proactive hooks):** use an
