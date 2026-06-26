@@ -277,6 +277,20 @@ def test_progress_includes_learner_profile_and_due_list():
     assert "due_now" in prog
 
 
+def test_progress_surfaces_each_concepts_project(monkeypatch):
+    """progress is the in-chat audit: each concept shows its project, so scoping is visible there
+    too. It is an explicit pull, so it lists every project (global included), never filtered."""
+    monkeypatch.setattr(settings, "_git_root", lambda cwd: None)   # project == normalized cwd
+    a = srv.start_check("Backpropagation", source_text="backprop applies the chain rule.", cwd="/proj/a")
+    srv.judge_explanation(a["check_id"], "backprop computes gradients")
+    b = srv.start_check("Entropy", source_text="entropy measures surprise.")  # no cwd -> global
+    srv.judge_explanation(b["check_id"], "it measures disorder")
+
+    by_label = {c["concept"]: c for c in srv.progress()["concepts"]}
+    assert by_label["Backpropagation"]["project"] == settings.project_for("/proj/a")
+    assert by_label["Entropy"]["project"] is None   # global, surfaces everywhere
+
+
 # --- zero-key mode: the host model judges; the server verifies and computes ---
 
 _ZK_EXPLANATION = ("backprop computes gradients of the loss with the chain rule, recursively, "

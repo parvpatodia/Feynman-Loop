@@ -936,7 +936,9 @@ def score_transfer(check_id: str, answer: str) -> dict:
 def progress() -> dict:
     """Show the learner's understanding ledger: every concept ever checked, what's due now, and
     the learner profile (recurring failure modes, explain-vs-apply gap). Persisted across
-    sessions. Surface the due items to prompt a review."""
+    sessions. Surface the due items to prompt a review. Each concept carries the `project` it is
+    filed under (a git repo root; null means global, surfacing in every project). This is an
+    explicit pull, so it lists ALL projects, not just the current one."""
     now = datetime.now(timezone.utc)
     store = _make_store()
     uid = _make_identity().user_id()
@@ -955,6 +957,7 @@ def progress() -> dict:
             interval_days = round((st.next_due_at - st.last_reviewed_at).total_seconds() / 86400, 1)
         concepts.append({
             "concept": c.label,
+            "project": c.project,  # git-root path, or None for global (surfaces everywhere)
             "memory_strength_days": interval_days,
             "understanding_level": round(st.understanding_level, 2),
             "transfer_level": round(st.transfer_level, 2) if st.transfer_level is not None else None,
