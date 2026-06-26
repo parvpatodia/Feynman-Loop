@@ -20,6 +20,11 @@ knowledge graph, inside whatever AI chat you already use.
   statuses earned from memory intervals; related-concept frontier.
 - Proactivity: Claude Code hooks (session-start due questions, shipped-code nudges), macOS
   notifications carrying an actual 30-second question, opt-in daily launchd agent.
+- Project-scoped recall: each concept is filed under the project (git repo root) it was learned
+  in, and a session's due nudge surfaces only that project's concepts plus a global bucket, so
+  unrelated concepts don't interrupt the wrong project. `feynman-loop projects` audits what is
+  filed where and `feynman-loop reproject` moves a concept (or back to global). Existing concepts
+  back-fill to global with no migration.
 - Progression: streak (local calendar days), level-ups, milestones, journey cards. No points,
   no leaderboards, by design.
 - Surfaces: MCP server (7+ tools), web UI (localhost, voice input, PDF), terminal CLI; one
